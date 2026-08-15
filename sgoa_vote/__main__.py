@@ -68,19 +68,37 @@ def cmd_seed(args) -> int:
     return 0
 
 
+def _warn_about_unused_columns(ignored: list[str]) -> None:
+    if not ignored:
+        return
+    print()
+    print(f"  NOTE: these columns were not used: {', '.join(ignored)}")
+    if any(name.strip().lower() == "code" for name in ignored):
+        print("        Voting codes cannot be imported. They are generated at the")
+        print("        registration desk when an attendee checks in, and only a hash")
+        print("        is stored -- a code known before check-in would be a code")
+        print("        someone could use without being verified. One code covers all")
+        print("        the apartments a person represents, so a per-apartment column")
+        print("        would not fit in any case.")
+
+
 def cmd_init(args) -> int:
     """Create the real meeting, as opposed to the demo one."""
     from .domain.errors import DomainError
-    from .seed import init_agm, load_apartments_csv, parse_blocks, print_init_summary
+    from .seed import (ignored_apartment_columns, init_agm, load_apartments_csv,
+                       load_resolutions_csv, parse_blocks, print_init_summary)
 
     svc = _services(args)
     try:
         if args.apartments:
             apartments = load_apartments_csv(args.apartments)
+            _warn_about_unused_columns(ignored_apartment_columns(args.apartments))
         else:
             apartments = parse_blocks(args.blocks)
+        agenda = load_resolutions_csv(args.resolutions) if args.resolutions else None
         print_init_summary(init_agm(svc, title=args.title, agm_date=args.date,
-                                    location=args.location, apartments=apartments))
+                                    location=args.location, apartments=apartments,
+                                    resolutions=agenda))
     except DomainError as exc:
         print(f"\n  Refused: {exc.message}\n", file=sys.stderr)
         return 1
@@ -192,6 +210,10 @@ def build_parser() -> argparse.ArgumentParser:
                       help="CSV with columns apartment_id, owner_name, eligible")
     init.add_argument("--blocks", default="A:17,B:17,C:17",
                       help="used when no CSV is given, e.g. A:17,B:17,C:17")
+    init.add_argument("--resolutions", default=None,
+                      help="CSV of the agenda: one resolution per row, exact wording "
+                           "in the first column. Optional columns: number, title, "
+                           "voting_rule")
     init.set_defaults(func=cmd_init)
 
     add_op = add("add-operator", help="create an extra operator account")

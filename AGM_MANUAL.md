@@ -21,13 +21,18 @@ keep them with the laptop. Full technical detail is in `README.md`.
 
 ## 2. Two weeks before — set up the meeting
 
-Install once:
+Install once, **while you still have internet** — the AGM network has none, and nothing
+downloads on the day:
 
 ```bash
+python --version          # must be 3.12 or newer
 pip install -r requirements.txt
+python -m pytest tests -q # confirms the install on this exact laptop
 ```
 
-Prepare `apartments.csv` (any spreadsheet, saved as CSV):
+Prepare two spreadsheets, saved as CSV.
+
+**`apartments.csv`** — the register:
 
 ```csv
 apartment_id,owner_name,eligible
@@ -38,7 +43,21 @@ B4,Disputed ownership,no
 
 `owner_name` is a registration aid and never reaches the ballot store. `eligible` may be
 left blank, which means yes. Mark `no` for any flat the committee has determined cannot
-vote.
+vote. A `code` column will **not** be used — see the note at the end of this section.
+
+**`agenda.csv`** — one resolution per row, exact wording in column A, no header needed:
+
+```csv
+That the Association approve the lift replacement as tabled at this meeting.
+That the Association adopt the annual budget for 2026-27 as circulated.
+```
+
+If a resolution needs a two-thirds majority, add a header row and a rule column:
+
+```csv
+title,full_text,voting_rule
+By-law amendment,That the by-laws be amended per Annexure 2.,two-thirds
+```
 
 Create the real meeting:
 
@@ -47,8 +66,15 @@ python -m sgoa_vote --data-dir data-agm2026 init \
   --title "SGOA Annual General Meeting 2026" \
   --date 2026-09-20 \
   --location "Community Hall, Shanti Gulmohar" \
-  --apartments apartments.csv
+  --apartments apartments.csv \
+  --resolutions agenda.csv
 ```
+
+> **Voting codes cannot be pre-assigned to apartments.** They are generated at the desk
+> when someone checks in, and only a hash is kept. Two reasons: a code that existed
+> before check-in could be used by whoever found it, without anyone verifying their
+> authority; and a code belongs to a *person*, not a flat — someone representing three
+> apartments gets one code carrying three votes, not three codes.
 
 This prints five operator passwords **once**. Write them down before closing the window.
 It also prints the **configuration hash** — both scrutineers should record it now, on

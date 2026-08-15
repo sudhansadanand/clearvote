@@ -34,21 +34,56 @@ python -m sgoa_vote --data-dir data-agm2026 init \
   --title "SGOA Annual General Meeting 2026" \
   --date 2026-09-20 \
   --location "Community Hall, Shanti Gulmohar" \
-  --apartments apartments.csv        # or: --blocks A:17,B:17,C:17
+  --apartments apartments.csv \
+  --resolutions agenda.csv
 ```
 
-That creates the AGM record, the apartment register, and five operator accounts whose
-strong passwords are printed once. It leaves the meeting in `SETUP`; the administrator
-opens registration on the day, so the audit trail carries the real time the desk opened.
+That creates the AGM record, the apartment register, the agenda as drafts, and five
+operator accounts whose strong passwords are printed once. It leaves the meeting in
+`SETUP`; the administrator opens registration on the day, so the audit trail carries the
+real time the desk opened.
 
-`apartments.csv` needs a header row with `apartment_id`, optionally `owner_name` and
-`eligible` (blank means eligible):
+**`apartments.csv`** needs a header row with `apartment_id`, optionally `owner_name` and
+`eligible` (blank means eligible). Any other column is reported as unused rather than
+silently dropped. Use `--blocks A:17,B:17,C:17` instead if you have no sheet yet.
 
 ```csv
 apartment_id,owner_name,eligible
 A1,Meera Raghavan,yes
 B4,Disputed ownership,no
 ```
+
+**`agenda.csv`** in its simplest form is one resolution per row, exact wording in the
+first column, no header:
+
+```csv
+That the Association approve the lift replacement as tabled at this meeting.
+That the Association adopt the annual budget for 2026-27 as circulated.
+```
+
+They are numbered R1, R2, … in file order, and a short title is derived from the wording.
+Add a header row to control any of that:
+
+```csv
+number,title,full_text,voting_rule
+R1,Lift replacement,That the Association approve the lift replacement.,
+R2,By-law amendment,That the by-laws be amended per Annexure 2.,two-thirds
+R3,Auditor,That the auditor be appointed.,majority of all eligible
+```
+
+`voting_rule` accepts blank or `simple` (FOR > AGAINST), `two-thirds`, or
+`majority of all eligible`. Anything else is refused rather than guessed at — the
+software must never infer a special majority from the wording.
+
+Everything arrives as a **draft**. The MC still finalizes each one on the day, which is
+what freezes the wording and produces its hash.
+
+> **Voting codes cannot be imported.** A `code` column in the apartment sheet is ignored
+> and reported. Codes are generated at the registration desk when an attendee checks in,
+> and only a keyed hash is stored — a code that existed before check-in would be usable
+> by whoever found it, without anyone having verified their authority. Codes are also
+> per *attendee*, not per apartment: one person representing three flats gets one code
+> carrying three entitlements.
 
 Always rehearse in a **separate** `--data-dir`. Seeding refuses to run against a database
 that already holds ballots, but keeping the two apart is the real protection.

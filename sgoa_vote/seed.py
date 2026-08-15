@@ -10,7 +10,8 @@ import csv
 import secrets
 from pathlib import Path
 
-from .domain import agm, auth, credentials, entitlements, resolutions
+from .domain import agm, auth, credentials, entitlements
+from .domain import resolutions as resolutions_module
 from .domain.errors import Conflict, ValidationError
 
 DEMO_PASSWORD = "sgoa-demo"
@@ -100,9 +101,9 @@ def seed(svc, *, title: str = "SGOA Annual General Meeting 2026",
         agm.open_registration(conn)
 
         for number, title_text, wording, rule in RESOLUTIONS:
-            resolutions.create_draft(conn, title_text, wording, number=number,
-                                     voting_rule=rule,
-                                     eligible_pool_id=cfg.eligible_pool_id)
+            resolutions_module.create_draft(conn, title_text, wording, number=number,
+                                            voting_rule=rule,
+                                            eligible_pool_id=cfg.eligible_pool_id)
 
         for name, holdings in ATTENDEES:
             attendee_id = entitlements.ensure_attendee(conn, name)
@@ -199,8 +200,142 @@ def load_apartments_csv(path: str | Path) -> list[dict]:
     return apartments
 
 
+RULE_ALIASES = {
+    "": "FOR_GT_AGAINST",
+    "simple": "FOR_GT_AGAINST",
+    "ordinary": "FOR_GT_AGAINST",
+    "majority": "FOR_GT_AGAINST",
+    "for_gt_against": "FOR_GT_AGAINST",
+    "two thirds": "TWO_THIRDS_OF_CAST",
+    "two-thirds": "TWO_THIRDS_OF_CAST",
+    "twothirds": "TWO_THIRDS_OF_CAST",
+    "special": "TWO_THIRDS_OF_CAST",
+    "two_thirds_of_cast": "TWO_THIRDS_OF_CAST",
+    "all eligible": "MAJORITY_OF_ALL_ELIGIBLE",
+    "majority of all eligible": "MAJORITY_OF_ALL_ELIGIBLE",
+    "majority_of_all_eligible": "MAJORITY_OF_ALL_ELIGIBLE",
+}
+
+_TEXT_COLUMNS = ("full_text", "text", "wording", "resolution", "resolution_text")
+_TITLE_COLUMNS = ("title", "short_title", "subject")
+_RULE_COLUMNS = ("voting_rule", "rule", "majority")
+_NUMBER_COLUMNS = ("number", "resolution_number", "no", "num")
+_KNOWN_COLUMNS = set(_TEXT_COLUMNS + _TITLE_COLUMNS + _RULE_COLUMNS + _NUMBER_COLUMNS)
+
+
+def _derive_title(text: str) -> str:
+    """A short handle for the MC console, taken from the wording itself.
+
+    Nearly every resolution opens "That the Association ...", which would make
+    every derived title start the same way and tell the MC nothing, so that
+    opening is dropped before the first few words are taken.
+    """
+    first = text.replace("\n", " ").strip()
+    for stop in (". ", "; "):
+        if stop in first[:90]:
+            first = first.split(stop)[0]
+            break
+
+    lowered = first.lower()
+    for prefix in ("that the association ", "that the committee ", "that the ", "that "):
+        if lowered.startswith(prefix):
+            first = first[len(prefix):]
+            break
+
+    words = first.split()
+    title = " ".join(words[:8]).strip(" ,;:")
+    if title:
+        title = title[0].upper() + title[1:]
+    return (title[:70] + "...") if len(title) > 70 else (title or "Untitled resolution")
+
+
+def ignored_apartment_columns(path: str | Path) -> list[str]:
+    """Columns present in the file that the importer does not use.
+
+    Worth reporting: a committee that put a `code` column in the sheet expects
+    those codes to be used, and silently dropping them would be discovered at
+    the registration desk on the day.
+    """
+    known = {"apartment_id", "owner_name", "eligible"}
+    path = Path(path)
+    with open(path, newline="", encoding="utf-8-sig") as handle:
+        header = next(csv.reader(handle), [])
+    return [cell.strip() for cell in header
+            if cell and cell.strip().lower().replace(" ", "_") not in known]
+
+
+def _normalise_rule(value: str) -> str:
+    key = (value or "").strip().lower()
+    if key in RULE_ALIASES:
+        return RULE_ALIASES[key]
+    raise ValidationError(
+        f"'{value}' is not a voting rule. Use one of: blank or 'simple' for "
+        "FOR > AGAINST, 'two-thirds', or 'majority of all eligible'.")
+
+
+def load_resolutions_csv(path: str | Path) -> list[dict]:
+    """Read the agenda.
+
+    The simplest accepted file is one resolution per row in a single column,
+    which is what a committee typing an agenda into a spreadsheet produces.
+    A header row unlocks the optional columns: number, title, voting_rule.
+    """
+    path = Path(path)
+    if not path.exists():
+        raise ValidationError(f"No resolutions file at {path}.")
+
+    with open(path, newline="", encoding="utf-8-sig") as handle:
+        rows = [row for row in csv.reader(handle) if any((cell or "").strip() for cell in row)]
+    if not rows:
+        raise ValidationError(f"No resolutions were read from {path}.")
+
+    header = [(cell or "").strip().lower().replace(" ", "_") for cell in rows[0]]
+    has_header = bool(set(header) & _KNOWN_COLUMNS)
+    body = rows[1:] if has_header else rows
+
+    def column(names, row):
+        for name in names:
+            if name in header:
+                index = header.index(name)
+                if index < len(row):
+                    return (row[index] or "").strip()
+        return ""
+
+    resolutions = []
+    for row in body:
+        if has_header:
+            text = column(_TEXT_COLUMNS, row)
+            title = column(_TITLE_COLUMNS, row)
+            rule = _normalise_rule(column(_RULE_COLUMNS, row))
+            number = column(_NUMBER_COLUMNS, row).upper() or None
+            # A sheet with only a title column and no separate wording still works.
+            if not text and title:
+                text, title = title, ""
+        else:
+            text = (row[0] or "").strip()
+            title, rule, number = "", "FOR_GT_AGAINST", None
+
+        if not text:
+            continue
+        resolutions.append({"number": number, "title": title or _derive_title(text),
+                            "full_text": text, "voting_rule": rule})
+
+    if not resolutions:
+        raise ValidationError(
+            f"No resolution wording was found in {path.name}. Put one resolution per "
+            "row, with the exact wording in the first column.")
+
+    seen = set()
+    for entry in resolutions:
+        if entry["number"] and entry["number"] in seen:
+            raise ValidationError(
+                f"Resolution number {entry['number']} appears more than once.")
+        seen.add(entry["number"])
+    return resolutions
+
+
 def init_agm(svc, *, title: str, agm_date: str, location: str,
-             apartments: list[dict]) -> dict:
+             apartments: list[dict], resolutions: list[dict] | None = None) -> dict:
     """Create the real meeting: AGM record, apartment register, operator accounts.
 
     Deliberately does NOT open registration. The administrator does that on the
@@ -229,9 +364,17 @@ def init_agm(svc, *, title: str, agm_date: str, location: str,
             auth.create_operator(conn, username, role, password)
             accounts.append({"username": username, "role": role, "password": password})
 
+        # Every resolution starts as a DRAFT. The MC still finalizes each one on
+        # the day, which is what freezes the wording and produces its hash.
+        for entry in (resolutions or []):
+            resolutions_module.create_draft(
+                conn, entry["title"], entry["full_text"], number=entry["number"],
+                voting_rule=entry["voting_rule"], eligible_pool_id=cfg.eligible_pool_id)
+
     eligible = sum(1 for a in apartments if a["eligible"])
     return {"title": title, "date": agm_date, "location": location,
             "apartments": len(apartments), "eligible": eligible,
+            "resolutions": resolutions or [],
             "operators": accounts, "config_hash": cfg.config_hash()}
 
 
@@ -243,6 +386,16 @@ def print_init_summary(result: dict) -> None:
     print(f"  {result['date']}   {result['location']}")
     print(f"  {result['apartments']} apartments on the register, "
           f"{result['eligible']} eligible to vote")
+    if result["resolutions"]:
+        print(f"  {len(result['resolutions'])} resolutions loaded as drafts:")
+        for entry in result["resolutions"]:
+            rule = "" if entry["voting_rule"] == "FOR_GT_AGAINST" \
+                else f"   [{entry['voting_rule']}]"
+            print(f"    {entry['number'] or '(auto)':<5} {entry['title']}{rule}")
+        print("    Check the exact wording on the MC console before the meeting.")
+    else:
+        print("  No resolutions loaded. Enter them on the MC console, or re-run")
+        print("  with --resolutions agenda.csv.")
     print()
     print("  OPERATOR ACCOUNTS -- write these down now. They are shown once.")
     print(f"  {'USERNAME':<16}{'ROLE':<16}PASSWORD")
