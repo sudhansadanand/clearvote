@@ -27,6 +27,8 @@ def _page(request: Request, name: str, **context) -> HTMLResponse:
     with svc.db.reader() as conn:
         agm_row = agm.get(conn)
         operator = deps.current_operator(conn, request)
+    context.setdefault("base", deps.base_path(request))
+    context.setdefault("event_name", getattr(svc, "event_name", None))
     context.setdefault("agm", dict(agm_row) if agm_row else None)
     context.setdefault("demo", bool(agm_row["is_demo"]) if agm_row else False)
     context.setdefault("operator", dict(operator) if operator else None)
@@ -39,12 +41,20 @@ def _page(request: Request, name: str, **context) -> HTMLResponse:
 def _require_operator_page(request: Request, *roles: str):
     """Returns a redirect to the sign-in page, or None if the operator may pass."""
     svc = deps.services(request)
+    base = deps.base_path(request)
     with svc.db.reader() as conn:
         operator = deps.current_operator(conn, request)
     if operator is None:
-        return RedirectResponse(f"/login?next={request.url.path}", status_code=303)
+        # `next` must be the path *within* this event. The scope keeps the full
+        # request path even under a mount, so strip the prefix here -- otherwise
+        # the sign-in page prefixes it a second time and sends the operator to
+        # /trial-run/trial-run/mc.
+        target = request.scope.get("path", "/")
+        if base and target.startswith(base):
+            target = target[len(base):] or "/"
+        return RedirectResponse(f"{base}/login?next={target}", status_code=303)
     if roles and operator["role"] != "ADMIN" and operator["role"] not in roles:
-        return RedirectResponse("/login?denied=1", status_code=303)
+        return RedirectResponse(f"{base}/login?denied=1", status_code=303)
     return None
 
 

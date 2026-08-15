@@ -4,13 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>{% block title %}SGOA AGM Voting{% endblock %}</title>
-<link rel="stylesheet" href="/static/app.css">
+<link rel="stylesheet" href="{{ base }}/static/app.css">
 <link rel="icon" href="data:,">
 </head>
-<body data-csrf="{{ csrf_token }}">
+<body data-csrf="{{ csrf_token }}" data-base="{{ base }}">
 {% if demo %}<div class="demo-banner">DEMO DATA &mdash; NOT A REAL AGM</div>{% endif %}
+{% if event_name %}<div class="event-banner">{{ event_name }}</div>{% endif %}
 {% block body %}{% endblock %}
-<script src="/static/app.js"></script>
+<script src="{{ base }}/static/app.js"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

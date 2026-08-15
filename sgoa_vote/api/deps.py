@@ -24,19 +24,35 @@ def client_key(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def set_voter_cookie(response, session_id: str, cfg) -> None:
+def base_path(request: Request) -> str:
+    """"" when this meeting is served at the root, "/<event>" when mounted."""
+    return (request.scope.get("root_path") or "").rstrip("/")
+
+
+def cookie_path(request: Request) -> str:
+    """Scope a session to one meeting.
+
+    With several meetings served from one process, a cookie on "/" would make a
+    session issued by one of them travel to all the others. The browser only
+    sends a cookie to paths under its own, so scoping it to the event prefix
+    keeps sessions, and the CSRF token inside them, from crossing over.
+    """
+    return base_path(request) + "/"
+
+
+def set_voter_cookie(response, session_id: str, cfg, request: Request) -> None:
     response.set_cookie(
         VOTER_COOKIE, session_id,
         httponly=True, samesite="strict", secure=cfg.cookie_secure,
-        max_age=cfg.voter_session_hours * 3600, path="/",
+        max_age=cfg.voter_session_hours * 3600, path=cookie_path(request),
     )
 
 
-def set_operator_cookie(response, session_id: str, cfg) -> None:
+def set_operator_cookie(response, session_id: str, cfg, request: Request) -> None:
     response.set_cookie(
         OPERATOR_COOKIE, session_id,
         httponly=True, samesite="strict", secure=cfg.cookie_secure,
-        max_age=12 * 3600, path="/",
+        max_age=12 * 3600, path=cookie_path(request),
     )
 
 

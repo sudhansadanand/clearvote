@@ -118,6 +118,22 @@ def test_a_bare_single_column_of_wordings_is_enough(tmp_path):
     assert "lift replacement" in agenda[0]["title"]
 
 
+def test_commas_inside_the_wording_survive_quoted_or_not(tmp_path):
+    """The wording is what gets hashed and voted on; truncating it is the worst
+    failure this importer could have."""
+    path = tmp_path / "resolutions.csv"
+    path.write_text(
+        'That the Association approve the budget, as circulated with the notice.\n'
+        '"That the lift be replaced, at a cost not exceeding the tabled amount."\n',
+        encoding="utf-8")
+
+    agenda = load_resolutions_csv(path)
+    assert agenda[0]["full_text"] == \
+        "That the Association approve the budget, as circulated with the notice."
+    assert agenda[1]["full_text"] == \
+        "That the lift be replaced, at a cost not exceeding the tabled amount."
+
+
 def test_blank_rows_in_the_spreadsheet_are_skipped(tmp_path):
     path = tmp_path / "agenda.csv"
     path.write_text("First resolution wording.\n\n\nSecond resolution wording.\n",

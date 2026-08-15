@@ -26,7 +26,7 @@ def login(request: Request, body: LoginRequest):
     payload = {"status": "SIGNED_IN", "username": operator["username"],
                "role": operator["role"], "csrf_token": session["csrf_token"]}
     response = JSONResponse(payload)
-    deps.set_operator_cookie(response, session["session_id"], svc.config)
+    deps.set_operator_cookie(response, session["session_id"], svc.config, request)
     return response
 
 
@@ -36,7 +36,7 @@ def logout(request: Request):
     with svc.db.writer() as conn:
         auth.end_operator_session(conn, deps.operator_session_id(request))
     response = JSONResponse({"status": "SIGNED_OUT"})
-    response.delete_cookie(deps.OPERATOR_COOKIE, path="/")
+    response.delete_cookie(deps.OPERATOR_COOKIE, path=deps.cookie_path(request))
     return response
 
 

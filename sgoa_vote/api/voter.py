@@ -61,7 +61,7 @@ def join(request: Request, body: JoinRequest):
     payload = {"status": "JOINED", "entitlement_count": result["entitlement_count"],
                "resumed": result["resumed"], "state": state}
     response = JSONResponse(payload)
-    deps.set_voter_cookie(response, result["session_id"], cfg)
+    deps.set_voter_cookie(response, result["session_id"], cfg, request)
     return response
 
 
@@ -132,5 +132,5 @@ def logout(request: Request):
     with svc.db.writer() as conn:
         credentials.end_session(conn, deps.voter_session_id(request))
     response = JSONResponse({"status": "LOGGED_OUT"})
-    response.delete_cookie(deps.VOTER_COOKIE, path="/")
+    response.delete_cookie(deps.VOTER_COOKIE, path=deps.cookie_path(request))
     return response

@@ -4,6 +4,19 @@
 const SGOA = {
   csrf: (document.body && document.body.dataset.csrf) || "",
 
+  /* Empty when this meeting is served at the root, or "/<event>" when several
+     meetings are served from one process. Every absolute path in the page goes
+     through url() or go() so a page never reaches into another event. */
+  base: (document.body && document.body.dataset.base) || "",
+
+  url(path) {
+    return (path && path.charAt(0) === "/") ? SGOA.base + path : path;
+  },
+
+  go(path) {
+    window.location.href = SGOA.url(path);
+  },
+
   async api(method, url, body) {
     const opts = {
       method,
@@ -12,7 +25,7 @@ const SGOA = {
     };
     if (SGOA.csrf) opts.headers["X-CSRF-Token"] = SGOA.csrf;
     if (body !== undefined) opts.body = JSON.stringify(body);
-    const res = await fetch(url, opts);
+    const res = await fetch(SGOA.url(url), opts);
     let data = null;
     try { data = await res.json(); } catch (e) { data = null; }
     if (!res.ok) {

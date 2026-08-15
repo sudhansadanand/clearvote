@@ -26,7 +26,12 @@ def _services(args) -> Services:
 def cmd_run(args) -> int:
     import uvicorn
 
-    from .app import create_app
+    from .app import create_app, create_multi_event_app, discover_events
+    from .config import Config
+
+    if getattr(args, "events_dir", None):
+        return _run_multi_event(args, uvicorn, create_multi_event_app,
+                                discover_events, Config)
 
     svc = _services(args)
     cfg = svc.config
@@ -65,6 +70,38 @@ def cmd_seed(args) -> int:
     except DomainError as exc:
         print(f"\n  Refused: {exc.message}\n", file=sys.stderr)
         return 1
+    return 0
+
+
+def _run_multi_event(args, uvicorn, create_multi_event_app, discover_events, Config):
+    """Serve every meeting in an events directory under its own path prefix."""
+    from pathlib import Path
+
+    events_dir = Path(args.events_dir)
+    cfg = Config.load(getattr(args, "config", None))
+    host = args.host or cfg.host
+    port = args.port or cfg.port
+    names = discover_events(events_dir)
+
+    print()
+    print(f"  SGOA AGM Voting System {APP_VERSION}")
+    print(f"  Serving {len(names)} meeting(s) from {events_dir.resolve()}")
+    print()
+    if names:
+        for name in names:
+            print(f"    http://localhost:{port}/{name}/")
+        print()
+        print(f"  Index of all meetings:  http://localhost:{port}/")
+    else:
+        print(f"  No meetings found. Create one with:")
+        print(f"    python -m sgoa_vote --data-dir {events_dir}/my-event init \\")
+        print(f"        --title \"...\" --date 2026-09-20 --apartments apartments.csv")
+        print()
+        print("  Then restart. Deleting a folder deletes that meeting.")
+    print()
+
+    uvicorn.run(create_multi_event_app(events_dir, cfg), host=host, port=port,
+                log_level="info", access_log=False)
     return 0
 
 
@@ -199,6 +236,9 @@ def build_parser() -> argparse.ArgumentParser:
     run = add("run", help="start the server")
     run.add_argument("--host", default=None)
     run.add_argument("--port", type=int, default=None)
+    run.add_argument("--events-dir", default=None,
+                     help="serve every meeting in this directory at /<folder-name>/ "
+                          "instead of one meeting at the root")
     run.set_defaults(func=cmd_run)
 
     init = add("init", help="create the real AGM and its operator accounts")
@@ -249,6 +289,7 @@ def main(argv=None) -> int:
         args.func = cmd_run
         args.host = None
         args.port = None
+        args.events_dir = None
     return args.func(args)
 
 

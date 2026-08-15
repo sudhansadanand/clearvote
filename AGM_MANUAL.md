@@ -107,6 +107,19 @@ python -m sgoa_vote --data-dir data-rehearsal seed
 python -m sgoa_vote --data-dir data-rehearsal run
 ```
 
+To keep several meetings side by side — a trial, a rehearsal, last year's archive — put
+each in its own folder under `events/` and serve them all at once:
+
+```bash
+python -m sgoa_vote run --events-dir events
+#   http://localhost:8000/agm2026-trial/
+#   http://localhost:8000/agm2026/
+```
+
+Each is completely separate: its own databases, its own codes, its own sign-ins. To throw
+a trial away, stop the server and delete its folder. **For the real AGM, run the single
+meeting on its own** so the laptop is serving exactly one thing.
+
 This builds a practice meeting with 12 voters and prints their codes. Every page shows a
 yellow **DEMO DATA** banner, so a rehearsal can never be mistaken for the real thing.
 Practise the full sequence at least once, including a tie and a lost card.

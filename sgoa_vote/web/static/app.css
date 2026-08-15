@@ -37,6 +37,16 @@ body {
 
 a { color: var(--brand); }
 
+/* Which meeting am I looking at? Shown only when several are served at once. */
+.event-banner {
+  background: var(--brand-dark);
+  color: #cfe2f2;
+  text-align: center;
+  font-size: 13px;
+  letter-spacing: .14em;
+  padding: 4px 8px;
+}
+
 .demo-banner {
   background: repeating-linear-gradient(45deg, #ffe9a8, #ffe9a8 12px, #ffdf85 12px, #ffdf85 24px);
   color: #4a3800;

@@ -23,7 +23,7 @@
   </section>
 
   <p class="help-line">Voters do not sign in here. Voters use the voting code
-    issued at the registration desk on the <a href="/">voting page</a>.</p>
+    issued at the registration desk on the <a href="{{ base }}/">voting page</a>.</p>
 </div>
 {% endblock %}
 
@@ -39,7 +39,7 @@
         username: SGOA.el("username").value,
         password: SGOA.el("password").value,
       });
-      window.location.href = next || "/mc";
+      SGOA.go(next || "/mc");
     } catch (err) {
       SGOA.banner("messages", err.message, "Check the username and password and try again.");
     }

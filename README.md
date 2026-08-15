@@ -88,6 +88,51 @@ what freezes the wording and produces its hash.
 Always rehearse in a **separate** `--data-dir`. Seeding refuses to run against a database
 that already holds ballots, but keeping the two apart is the real protection.
 
+## Several meetings on one server
+
+A folder is a meeting. Point the server at a directory of them and each is served under
+its own path:
+
+```
+events/
+  agm2026/          -> http://localhost:8000/agm2026/
+  agm2026-trial/    -> http://localhost:8000/agm2026-trial/
+  egm-march/        -> http://localhost:8000/egm-march/
+```
+
+```bash
+# create one
+mkdir -p events/agm2026-trial                       # put your CSVs in here
+python -m sgoa_vote --data-dir events/agm2026-trial init \
+  --title "SGOA AGM 2026 (trial)" --date 2026-09-20 \
+  --apartments events/agm2026-trial/apartments.csv \
+  --resolutions events/agm2026-trial/resolutions.csv
+
+# serve every meeting in the directory
+python -m sgoa_vote run --events-dir events
+
+# delete one: stop the server first, then remove the folder
+rm -rf events/agm2026-trial
+```
+
+`http://localhost:8000/` lists every meeting with its status and ballot count.
+
+Each meeting has its own three databases, its own HMAC key, its own operator accounts and
+its own export and backup folders, all inside its directory. **Sessions are scoped to the
+event path**, so signing in to the rehearsal does not sign you in to the real meeting, and
+a voting code issued by one is meaningless to the other. Nothing but the folder list says
+which meetings exist, so the filesystem and the application cannot disagree.
+
+Two things to know. Meetings are discovered at **startup**, so adding or removing one
+means restarting — deliberate, because an operator needs to be able to say exactly what
+was being served during a meeting. And the server keeps the database files open, so
+**stop it before deleting a folder** (on Windows the delete will fail outright while it
+runs).
+
+> For the real AGM, prefer the single-meeting form — `python -m sgoa_vote --data-dir
+> data-agm2026 run` — so the laptop is serving exactly one thing. Use `--events-dir` for
+> rehearsals, trials and archived meetings.
+
 | Surface | URL | Who uses it |
 |---|---|---|
 | Voter | `http://localhost:8000/` | residents, on their own phones |

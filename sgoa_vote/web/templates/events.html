@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meetings | SGOA AGM Voting</title>
+<link rel="stylesheet" href="/static/app.css">
+<link rel="icon" href="data:,">
+</head>
+<body>
+<div class="console" style="max-width:820px">
+  <div class="console-bar">
+    <h1>MEETINGS ON THIS SERVER</h1>
+    <span class="pill">v{{ version }}</span>
+  </div>
+
+  {% if events %}
+  <div class="panel">
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Event</th><th>Meeting</th><th>Status</th><th>Ballots</th></tr></thead>
+        <tbody>
+          {% for e in events %}
+          <tr>
+            <td><a href="/{{ e.name }}/"><b>{{ e.name }}</b></a></td>
+            <td>{{ e.title }}{% if e.date %} <span class="small">{{ e.date }}</span>{% endif %}
+                {% if e.demo %}<span class="status-tag">DEMO</span>{% endif %}</td>
+            <td><span class="status-tag">{{ e.status.replace("_", " ") }}</span></td>
+            <td>{{ e.ballots }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="small" style="margin-top:14px">
+      Each meeting is served under its own path and has its own databases, its own
+      voting codes and its own operator accounts. A sign-in on one does not carry to
+      another.
+    </p>
+  </div>
+  {% else %}
+  <div class="panel">
+    <h2>NO MEETINGS FOUND</h2>
+    <p class="small">Nothing in <span class="mono">{{ events_dir }}</span> yet.
+      Create one with:</p>
+    <p class="mono">python -m sgoa_vote --data-dir {{ events_dir }}/my-event init
+      --title "..." --date 2026-09-20 --apartments apartments.csv
+      --resolutions resolutions.csv</p>
+    <p class="small">Then restart the server. Deleting the folder deletes the meeting.</p>
+  </div>
+  {% endif %}
+</div>
+</body>
+</html>

@@ -4,6 +4,8 @@ __pycache__/
 
 # Live meeting state. Never commit a real AGM's databases, keys or exports.
 data/
+data-*/
+events/
 backups/
 export/
 config.json

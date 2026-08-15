@@ -28,7 +28,7 @@
     let s;
     try { s = await SGOA.get("/api/v1/projector/state"); }
     catch (err) {
-      if (err.status === 401) { window.location.href = "/login?next=/projector"; }
+      if (err.status === 401) { SGOA.go("/login?next=/projector"); }
       return;
     }
     const stage = SGOA.el("stage");

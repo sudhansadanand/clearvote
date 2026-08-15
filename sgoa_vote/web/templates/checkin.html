@@ -45,7 +45,7 @@
     </p>
     <p class="small">
       Voting codes are issued at the desk on the
-      <a href="/registration">full registration screen</a>, so the printed card can be
+      <a href="{{ base }}/registration">full registration screen</a>, so the printed card can be
       folded and handed over privately.
     </p>
   </section>
@@ -71,7 +71,7 @@
     try {
       register = await SGOA.get("/api/v1/registration/apartments");
     } catch (err) {
-      if (err.status === 401) { window.location.href = "/login?next=/checkin"; return; }
+      if (err.status === 401) { SGOA.go("/login?next=/checkin"); return; }
       SGOA.banner("messages", err.message, "Reload the page if this persists.");
       return;
     }

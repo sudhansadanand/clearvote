@@ -312,7 +312,15 @@ def load_resolutions_csv(path: str | Path) -> list[dict]:
             if not text and title:
                 text, title = title, ""
         else:
-            text = (row[0] or "").strip()
+            # A headerless agenda is one resolution per line. Resolution wording
+            # is full of commas -- "approve the budget, as circulated" -- and if
+            # the cell was not quoted, csv.reader will have split the line into
+            # several fields. Rejoining restores the wording exactly; a properly
+            # quoted cell arrives as one field and is unaffected either way.
+            # The wording is what gets hashed and voted on, so a quiet
+            # truncation here would put different words to the meeting than the
+            # committee approved.
+            text = ",".join(row).strip()
             title, rule, number = "", "FOR_GT_AGAINST", None
 
         if not text:
