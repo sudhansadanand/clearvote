@@ -1,0 +1,346 @@
+{% extends "base.html" %}
+{% block title %}SGOA AGM Voting{% endblock %}
+
+{% block body %}
+<div class="voter-shell">
+
+  <div class="voter-header">
+    <h1>SGOA AGM VOTING</h1>
+    <div class="sub">{{ agm.title if agm else "Annual General Meeting" }}</div>
+  </div>
+
+  <div id="messages"></div>
+
+  <!-- ------------------------------------------------------------- join -- -->
+  <section id="screen-join" class="card" style="display:none">
+    <label for="code" style="font-size:20px;font-weight:700">Enter your private voting code</label>
+    <input id="code" class="code-input" type="text" inputmode="latin"
+           autocomplete="off" autocapitalize="characters" spellcheck="false"
+           maxlength="4" placeholder="KTR7" aria-label="Your private voting code">
+    <button id="join-btn" class="btn">JOIN AGM</button>
+    <p class="help-line">Need help? Please visit the voting assistance desk.</p>
+  </section>
+
+  <!-- ---------------------------------------------------------- waiting -- -->
+  <section id="screen-waiting" class="card" style="display:none">
+    <p style="font-size:22px;font-weight:700">You are connected.</p>
+    <p class="entitlement-line">You have <span id="wait-entitlements">0</span> voting
+      entitlement<span id="wait-plural">s</span>.</p>
+    <p style="font-size:20px">Please wait for the next resolution.</p>
+    <p class="small">Current item: <span id="wait-item">-</span></p>
+  </section>
+
+  <!-- ------------------------------------------------------------- vote -- -->
+  <section id="screen-vote" class="card" style="display:none">
+    <div class="resolution-number" id="vote-number">RESOLUTION</div>
+    <p class="resolution-text" id="vote-text"></p>
+    <p class="entitlement-line">You have <span id="vote-remaining">0</span>
+      vote<span id="vote-plural">s</span>.</p>
+    <button class="btn btn-for"     data-choice="FOR">FOR</button>
+    <button class="btn btn-against" data-choice="AGAINST">AGAINST</button>
+    <button class="btn btn-abstain" data-choice="ABSTAIN">ABSTAIN</button>
+    <button id="split-btn" class="btn btn-quiet" style="display:none">Vote individually instead</button>
+  </section>
+
+  <!-- --------------------------------------------------------- allocate -- -->
+  <section id="screen-allocate" class="card" style="display:none">
+    <div class="resolution-number">ALLOCATE YOUR <span id="alloc-total-votes">0</span> VOTES</div>
+    <div id="alloc-rows"></div>
+    <p class="alloc-total">Allocated: <span id="alloc-used">0</span> of
+      <span id="alloc-max">0</span></p>
+    <button id="alloc-continue" class="btn" disabled>CONTINUE</button>
+    <button id="alloc-back" class="btn btn-quiet">GO BACK</button>
+  </section>
+
+  <!-- ---------------------------------------------------------- confirm -- -->
+  <section id="screen-confirm" class="card" style="display:none">
+    <div class="resolution-number">CONFIRM YOUR VOTE</div>
+    <p class="resolution-number" id="confirm-resolution" style="font-size:17px"></p>
+    <div id="confirm-lines"></div>
+    <button id="confirm-btn" class="btn">CONFIRM</button>
+    <button id="confirm-back" class="btn btn-quiet">GO BACK</button>
+    <p class="help-line">Your vote is not recorded until you tap Confirm.</p>
+  </section>
+
+  <!-- --------------------------------------------------------- recorded -- -->
+  <section id="screen-recorded" class="card" style="display:none">
+    <div class="recorded-tick" aria-hidden="true">&#10003;</div>
+    <div class="resolution-number" style="text-align:center">VOTE RECORDED</div>
+    <p style="font-size:21px;text-align:center" id="recorded-line"></p>
+    <p style="font-size:20px;text-align:center">Please wait for the next resolution.</p>
+    <p class="help-line">You cannot change this vote after confirmation.</p>
+    <p class="help-line mono" id="recorded-receipt"></p>
+  </section>
+
+  <!-- ----------------------------------------------------- not eligible -- -->
+  <section id="screen-not_eligible" class="card" style="display:none">
+    <p style="font-size:21px">You are not on the voting list for the resolution that is
+      open at the moment.</p>
+    <p class="help-line">Please visit the voting assistance desk.</p>
+  </section>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const POLL_MS = {{ cfg.poll_interval_ms }};
+  const CHOICES = ["FOR", "AGAINST", "ABSTAIN"];
+
+  let screen = "join";          // what the voter is looking at right now
+  let serverState = null;
+  let resolution = null;
+  let remaining = 0;
+  let alloc = { FOR: 0, AGAINST: 0, ABSTAIN: 0 };
+  let pending = null;           // { allocation, submissionId }
+  let busy = false;
+
+  const SCREENS = ["join", "waiting", "vote", "allocate", "confirm", "recorded", "not_eligible"];
+
+  function setScreen(name) {
+    screen = name;
+    SCREENS.forEach(s => SGOA.show("screen-" + s, s === name));
+  }
+
+  function plural(id, n) { SGOA.text(id, n === 1 ? "" : "s"); }
+
+  /* ------------------------------------------------------------- join -- */
+
+  async function join() {
+    const code = SGOA.el("code").value.trim().toUpperCase();
+    if (!code) { SGOA.banner("messages", "Please enter your voting code.",
+                             "Please visit the voting assistance desk."); return; }
+    try {
+      SGOA.banner("messages", null);
+      await SGOA.post("/api/v1/voter/join", { code: code });
+      SGOA.el("code").value = "";
+      await poll();
+    } catch (err) {
+      SGOA.banner("messages", err.message, (err.payload && err.payload.next_action)
+                  || "Please visit the voting assistance desk.");
+    }
+  }
+
+  /* ------------------------------------------------------------- vote -- */
+
+  function renderVote() {
+    SGOA.text("vote-number", "RESOLUTION " + resolution.number);
+    SGOA.text("vote-text", resolution.full_text);
+    SGOA.text("vote-remaining", remaining);
+    plural("vote-plural", remaining);
+    // Splitting only makes sense for a proxy holder with more than one vote.
+    SGOA.show("split-btn", remaining > 1);
+  }
+
+  function chooseAll(choice) {
+    const allocation = { FOR: 0, AGAINST: 0, ABSTAIN: 0 };
+    allocation[choice] = remaining;
+    goConfirm(allocation);
+  }
+
+  /* --------------------------------------------------------- allocate -- */
+
+  function renderAllocate() {
+    SGOA.text("alloc-total-votes", remaining);
+    SGOA.text("alloc-max", remaining);
+    const rows = SGOA.el("alloc-rows");
+    rows.innerHTML = "";
+    CHOICES.forEach(choice => {
+      const row = document.createElement("div");
+      row.className = "alloc-row";
+      row.innerHTML =
+        '<span class="alloc-label">' + choice + "</span>" +
+        '<button class="step" data-step="-1" data-choice="' + choice +
+        '" aria-label="one fewer vote ' + choice + '">&minus;</button>' +
+        '<span class="alloc-count" id="count-' + choice + '">0</span>' +
+        '<button class="step" data-step="1" data-choice="' + choice +
+        '" aria-label="one more vote ' + choice + '">+</button>';
+      rows.appendChild(row);
+    });
+    rows.querySelectorAll("button.step").forEach(btn => {
+      btn.addEventListener("click", () => step(btn.dataset.choice, parseInt(btn.dataset.step, 10)));
+    });
+    updateAllocation();
+  }
+
+  function step(choice, delta) {
+    const used = CHOICES.reduce((sum, c) => sum + alloc[c], 0);
+    const next = alloc[choice] + delta;
+    if (next < 0) return;
+    if (delta > 0 && used >= remaining) return;
+    alloc[choice] = next;
+    updateAllocation();
+  }
+
+  function updateAllocation() {
+    const used = CHOICES.reduce((sum, c) => sum + alloc[c], 0);
+    CHOICES.forEach(c => SGOA.text("count-" + c, alloc[c]));
+    SGOA.text("alloc-used", used);
+    SGOA.el("alloc-continue").disabled = (used === 0 || used > remaining);
+    SGOA.el("alloc-rows").querySelectorAll("button.step").forEach(btn => {
+      const choice = btn.dataset.choice;
+      const delta = parseInt(btn.dataset.step, 10);
+      btn.disabled = delta > 0 ? used >= remaining : alloc[choice] === 0;
+    });
+  }
+
+  /* ---------------------------------------------------------- confirm -- */
+
+  function goConfirm(allocation) {
+    pending = { allocation: allocation, submissionId: SGOA.uuid() };
+    const total = CHOICES.reduce((sum, c) => sum + allocation[c], 0);
+
+    SGOA.text("confirm-resolution",
+              "RESOLUTION " + resolution.number + " — " + resolution.title);
+
+    const lines = SGOA.el("confirm-lines");
+    const parts = CHOICES.filter(c => allocation[c] > 0);
+    lines.innerHTML = "";
+    if (parts.length === 1) {
+      const choice = parts[0];
+      const line = document.createElement("p");
+      line.className = "confirm-line";
+      line.textContent = "You are casting " + total + " vote" + (total === 1 ? "" : "s")
+                       + " " + choice + ".";
+      lines.appendChild(line);
+      SGOA.el("confirm-btn").textContent =
+        "CONFIRM " + total + " VOTE" + (total === 1 ? "" : "S") + " " + choice;
+    } else {
+      parts.forEach(choice => {
+        const line = document.createElement("p");
+        line.className = "confirm-line";
+        line.textContent = allocation[choice] + " " + choice;
+        lines.appendChild(line);
+      });
+      SGOA.el("confirm-btn").textContent = "CONFIRM VOTES";
+    }
+    setScreen("confirm");
+  }
+
+  async function submitVote() {
+    if (busy || !pending) return;
+    busy = true;
+    SGOA.el("confirm-btn").disabled = true;
+    SGOA.banner("messages", null);
+
+    const body = {
+      client_submission_id: pending.submissionId,
+      resolution_version: resolution.version,
+      resolution_hash: resolution.text_hash,
+      allocation: pending.allocation,
+      confirmed: true,
+    };
+
+    // Retry with the SAME submission id: the server treats a repeat as the
+    // original vote, so a dropped connection can never double-count.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await SGOA.post(
+          "/api/v1/resolutions/" + encodeURIComponent(resolution.resolution_id) + "/vote", body);
+        SGOA.text("recorded-line", res.entitlements_recorded +
+          " voting entitlement" + (res.entitlements_recorded === 1 ? " was" : "s were") +
+          " recorded for Resolution " + res.resolution + ".");
+        SGOA.text("recorded-receipt", "Receipt " + (res.receipt_id || ""));
+        pending = null;
+        alloc = { FOR: 0, AGAINST: 0, ABSTAIN: 0 };
+        setScreen("recorded");
+        busy = false;
+        SGOA.el("confirm-btn").disabled = false;
+        return;
+      } catch (err) {
+        if (err.status) {   // the server answered; a retry will not change it
+          SGOA.banner("messages", err.message,
+                      (err.payload && err.payload.next_action) || "Please visit the voting assistance desk.");
+          busy = false;
+          SGOA.el("confirm-btn").disabled = false;
+          await poll();
+          return;
+        }
+        await new Promise(r => setTimeout(r, 900));  // network dropped; try again
+      }
+    }
+    SGOA.banner("messages", "Your vote could not be sent.",
+                "Please stay on this screen and tap Confirm again, or visit the voting assistance desk.");
+    busy = false;
+    SGOA.el("confirm-btn").disabled = false;
+  }
+
+  /* ------------------------------------------------------------- poll -- */
+
+  async function poll() {
+    let state;
+    try {
+      state = await SGOA.get("/api/v1/voter/state");
+    } catch (err) {
+      if (err.status === 401) { setScreen("join"); return; }
+      return;   // transient; keep whatever is on screen
+    }
+
+    serverState = state;
+    SGOA.text("wait-entitlements", state.entitlement_count);
+    plural("wait-plural", state.entitlement_count);
+    SGOA.text("wait-item", state.current_item || "-");
+
+    const previousId = resolution && resolution.resolution_id;
+    resolution = state.resolution;
+    remaining = state.remaining;
+
+    // Mid-decision on a resolution that is still open: leave the voter alone.
+    const midDecision = (screen === "allocate" || screen === "confirm");
+    const sameResolution = resolution && previousId === resolution.resolution_id;
+    if (midDecision && state.screen === "vote" && sameResolution) return;
+
+    if (midDecision && !sameResolution) {
+      pending = null;
+      alloc = { FOR: 0, AGAINST: 0, ABSTAIN: 0 };
+      SGOA.banner("messages", "Voting on that resolution has closed.",
+                  "Please wait for the next resolution.", "warn");
+    }
+
+    if (state.screen === "vote") {
+      if (previousId !== resolution.resolution_id) {
+        alloc = { FOR: 0, AGAINST: 0, ABSTAIN: 0 };
+        SGOA.banner("messages", null);
+      }
+      renderVote();
+      setScreen("vote");
+    } else if (state.screen === "recorded") {
+      if (screen !== "recorded") {
+        SGOA.text("recorded-line", state.recorded +
+          " voting entitlement" + (state.recorded === 1 ? " was" : "s were") +
+          " recorded for Resolution " + resolution.number + ".");
+        SGOA.text("recorded-receipt", "");
+      }
+      setScreen("recorded");
+    } else if (state.screen === "not_eligible") {
+      setScreen("not_eligible");
+    } else {
+      setScreen("waiting");
+    }
+  }
+
+  /* ------------------------------------------------------------- wire -- */
+
+  SGOA.el("join-btn").addEventListener("click", join);
+  SGOA.el("code").addEventListener("keydown", e => { if (e.key === "Enter") join(); });
+
+  document.querySelectorAll("#screen-vote [data-choice]").forEach(btn => {
+    btn.addEventListener("click", () => chooseAll(btn.dataset.choice));
+  });
+  SGOA.el("split-btn").addEventListener("click", () => { renderAllocate(); setScreen("allocate"); });
+  SGOA.el("alloc-back").addEventListener("click", () => { renderVote(); setScreen("vote"); });
+  SGOA.el("alloc-continue").addEventListener("click", () => goConfirm(Object.assign({}, alloc)));
+  SGOA.el("confirm-btn").addEventListener("click", submitVote);
+  SGOA.el("confirm-back").addEventListener("click", () => {
+    pending = null;
+    if (CHOICES.reduce((s, c) => s + alloc[c], 0) > 0) { renderAllocate(); setScreen("allocate"); }
+    else { renderVote(); setScreen("vote"); }
+  });
+
+  setScreen("join");
+  poll();
+  setInterval(poll, POLL_MS);   // no timer ever submits a vote
+})();
+</script>
+{% endblock %}

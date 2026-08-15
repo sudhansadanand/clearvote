@@ -1,0 +1,395 @@
+/* SGOA AGM Voting System.
+   Nothing here is loaded from the internet: system fonts only, no webfonts,
+   no icon packs. Voter sizes follow work order §8 (body >=18px, button labels
+   >=22px, touch targets >=48px and preferably 56-64px). */
+
+:root {
+  --ink: #14181d;
+  --ink-soft: #4a545f;
+  --paper: #ffffff;
+  --shell: #eef1f5;
+  --line: #c8d0d9;
+  --brand: #14456b;
+  --brand-dark: #0d2f4a;
+  --for: #1c6b3a;
+  --against: #97281f;
+  --abstain: #5a4a12;
+  --warn-bg: #fdf3d4;
+  --warn-line: #b58a00;
+  --error-bg: #fbe9e7;
+  --error-line: #97281f;
+  --ok-bg: #e6f4ea;
+  --radius: 10px;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  background: var(--shell);
+  color: var(--ink);
+  font-size: 18px;
+  line-height: 1.45;
+  -webkit-text-size-adjust: 100%;
+}
+
+a { color: var(--brand); }
+
+.demo-banner {
+  background: repeating-linear-gradient(45deg, #ffe9a8, #ffe9a8 12px, #ffdf85 12px, #ffdf85 24px);
+  color: #4a3800;
+  text-align: center;
+  font-weight: 700;
+  letter-spacing: .16em;
+  padding: 6px;
+  font-size: 14px;
+  border-bottom: 2px solid var(--warn-line);
+}
+
+/* ---------------------------------------------------------------- voter -- */
+
+.voter-shell {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 16px 16px 48px;
+}
+
+.voter-header {
+  text-align: center;
+  padding: 14px 0 10px;
+}
+.voter-header h1 {
+  font-size: 22px;
+  letter-spacing: .06em;
+  margin: 0;
+  color: var(--brand-dark);
+}
+.voter-header .sub { color: var(--ink-soft); font-size: 16px; }
+
+.card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+.resolution-number {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  color: var(--brand-dark);
+}
+.resolution-text { font-size: 21px; line-height: 1.4; margin: 10px 0 4px; }
+.entitlement-line { font-size: 20px; font-weight: 700; margin: 14px 0 6px; }
+
+.btn {
+  display: block;
+  width: 100%;
+  min-height: 64px;
+  padding: 14px 18px;
+  margin: 12px 0;
+  font-family: var(--font);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: #fff;
+  background: var(--brand);
+  border: 2px solid var(--brand-dark);
+  border-radius: var(--radius);
+  cursor: pointer;
+  text-align: center;
+}
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+
+.btn-for     { background: var(--for);     border-color: #14512b; }
+.btn-against { background: var(--against); border-color: #6f1c15; }
+.btn-abstain { background: var(--abstain); border-color: #43370d; }
+.btn-quiet {
+  background: var(--paper);
+  color: var(--brand-dark);
+  border: 2px solid var(--line);
+  font-size: 20px;
+  min-height: 56px;
+}
+
+.code-input {
+  width: 100%;
+  min-height: 76px;
+  font-size: 46px;
+  font-weight: 700;
+  letter-spacing: .32em;
+  text-align: center;
+  text-transform: uppercase;
+  border: 3px solid var(--brand);
+  border-radius: var(--radius);
+  padding: 8px;
+  font-family: var(--font);
+}
+
+/* mixed allocation steppers: nothing smaller than 56px */
+.alloc-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.alloc-label { flex: 1; font-size: 21px; font-weight: 700; }
+.step {
+  width: 64px; height: 64px;
+  font-size: 32px; font-weight: 800;
+  border-radius: var(--radius);
+  border: 2px solid var(--brand-dark);
+  background: var(--brand);
+  color: #fff;
+  cursor: pointer;
+}
+.step:disabled { opacity: .35; cursor: not-allowed; }
+.alloc-count { width: 56px; text-align: center; font-size: 30px; font-weight: 800; }
+.alloc-total { font-size: 21px; font-weight: 700; padding: 14px 0 4px; }
+
+.confirm-line { font-size: 24px; font-weight: 700; margin: 8px 0; }
+.recorded-tick { font-size: 46px; text-align: center; color: var(--for); }
+
+.notice { border-radius: var(--radius); padding: 14px 16px; margin: 12px 0; font-size: 18px; }
+.notice-error { background: var(--error-bg); border: 2px solid var(--error-line); }
+.notice-warn  { background: var(--warn-bg);  border: 2px solid var(--warn-line); }
+.notice-ok    { background: var(--ok-bg);    border: 2px solid var(--for); }
+.next-action { display: block; margin-top: 6px; font-weight: 700; }
+
+.help-line { text-align: center; color: var(--ink-soft); font-size: 17px; margin-top: 18px; }
+
+/* -------------------------------------------------------------- console -- */
+
+.console { max-width: 1140px; margin: 0 auto; padding: 16px; }
+.console-bar {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  background: var(--brand-dark); color: #fff;
+  padding: 10px 16px; border-radius: var(--radius); margin-bottom: 16px;
+}
+.console-bar h1 { font-size: 19px; margin: 0; flex: 1; }
+.console-bar a { color: #cfe2f2; text-decoration: none; font-size: 15px; }
+.console-bar a:hover { text-decoration: underline; }
+.pill {
+  background: rgba(255,255,255,.16); padding: 3px 10px; border-radius: 999px;
+  font-size: 13px; letter-spacing: .06em;
+}
+
+.grid { display: grid; gap: 16px; }
+.grid-2 { grid-template-columns: minmax(0,1.35fr) minmax(0,1fr); }
+@media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+
+.panel {
+  background: var(--paper); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 16px;
+}
+.panel h2 { margin: 0 0 12px; font-size: 17px; letter-spacing: .04em; color: var(--brand-dark); }
+.panel h3 { margin: 16px 0 8px; font-size: 15px; }
+
+.small { font-size: 14px; color: var(--ink-soft); }
+.mono { font-family: Consolas, "SF Mono", Menlo, monospace; font-size: 12px; word-break: break-all; }
+
+table { width: 100%; border-collapse: collapse; font-size: 15px; }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-soft); }
+.table-scroll { overflow-x: auto; }
+tr.dim td { color: var(--ink-soft); }
+
+.btn-sm {
+  font-size: 14px; min-height: 40px; width: auto; display: inline-block;
+  padding: 8px 14px; margin: 3px 4px 3px 0; letter-spacing: .02em;
+}
+.btn-danger { background: var(--against); border-color: #6f1c15; }
+.btn-ghost { background: var(--paper); color: var(--brand-dark); border: 2px solid var(--line); }
+
+input[type=text], input[type=password], textarea, select {
+  width: 100%; padding: 10px; font-size: 16px; font-family: var(--font);
+  border: 1px solid var(--line); border-radius: 6px; background: var(--paper); color: var(--ink);
+}
+textarea { min-height: 110px; line-height: 1.4; }
+label { display: block; font-size: 14px; font-weight: 600; margin: 10px 0 4px; }
+
+.status-tag {
+  display: inline-block; padding: 2px 9px; border-radius: 999px;
+  font-size: 12px; font-weight: 700; letter-spacing: .06em;
+  background: var(--shell); border: 1px solid var(--line);
+}
+.tag-VOTING_OPEN { background: #dff0d8; border-color: var(--for); color: #14512b; }
+.tag-PASSED { background: #dff0d8; border-color: var(--for); color: #14512b; }
+.tag-FAILED { background: #fbe9e7; border-color: var(--against); color: #6f1c15; }
+.tag-TIED { background: var(--warn-bg); border-color: var(--warn-line); color: #6b5200; }
+.tag-RECONCILIATION_ERROR { background: var(--error-bg); border-color: var(--error-line); color: #6f1c15; }
+
+.progress { height: 26px; background: var(--shell); border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.progress > span { display: block; height: 100%; background: var(--brand); }
+
+.metric-row { display: flex; gap: 20px; flex-wrap: wrap; margin: 12px 0; }
+.metric { min-width: 130px; }
+.metric .value { font-size: 34px; font-weight: 800; line-height: 1.1; }
+.metric .label { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-soft); }
+
+.sealed {
+  background: var(--warn-bg); border: 2px dashed var(--warn-line);
+  padding: 12px; border-radius: var(--radius); font-weight: 700; text-align: center;
+}
+
+.result-table td { font-size: 22px; font-weight: 700; }
+.result-table td.n { text-align: right; width: 90px; }
+.result-table tr.total td { border-top: 2px solid var(--ink); }
+.outcome { font-size: 34px; font-weight: 800; letter-spacing: .06em; margin-top: 10px; }
+
+.check-pass { color: var(--for); font-weight: 700; }
+.check-fail { color: var(--against); font-weight: 700; }
+
+/* ------------------------------------------------------------ projector -- */
+
+.projector {
+  min-height: 100vh; background: #0d2f4a; color: #fff;
+  display: flex; flex-direction: column; justify-content: center;
+  padding: 4vh 6vw; text-align: center;
+}
+.projector .num { font-size: 4vw; letter-spacing: .1em; opacity: .8; }
+.projector .text { font-size: 3.4vw; line-height: 1.35; margin: 3vh 0; }
+.projector .big { font-size: 7vw; font-weight: 800; }
+.projector table { max-width: 700px; margin: 0 auto; color: #fff; font-size: 2.6vw; }
+.projector td { border-bottom: 1px solid rgba(255,255,255,.25); padding: 10px; }
+
+/* Outcome box.
+   Colour is a supplementary cue and never the message: the word PASSED /
+   FAILED / TIED is always spelled out and a glyph repeats it.
+
+   The three fills are deliberately spread across the brightness range --
+   light green, mid amber, dark red -- rather than being chosen by hue alone.
+   Red and green at equal luminance are near-identical to a viewer with
+   red-green colour blindness, and identical in a black-and-white photograph
+   of the projector screen. Separated this way they stay distinct in both.
+   Every combination below is at least WCAG AA for its text. */
+.outcome-box {
+  display: inline-block;
+  margin: 3vh auto 1vh;
+  padding: 1.4vh 5vw;
+  border-radius: 16px;
+  font-size: 7vw;
+  font-weight: 800;
+  letter-spacing: .08em;
+  /* A bright border so the box edge reads against the dark backdrop whatever
+     the fill: the dark red would otherwise merge into the navy. */
+  border: 0.4vh solid rgba(255, 255, 255, .6);
+}
+.outcome-box .glyph { margin-right: .4em; font-weight: 700; }
+
+.outcome-PASSED { background: #5ccf88; color: #06210f; }   /* text 8.7:1  */
+.outcome-FAILED { background: #7d1610; color: #ffffff; }   /* text 10.5:1 */
+.outcome-TIED   { background: #b8760a; color: #241a00; }   /* text 4.6:1  */
+
+/* Console-sized version of the same badge, so the MC sees what the hall sees
+   before putting it on the screen. */
+.outcome-badge {
+  display: inline-block;
+  margin: 12px 0 4px;
+  padding: 10px 22px;
+  border-radius: 10px;
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  border: 2px solid rgba(0, 0, 0, .35);
+}
+
+/* ------------------------------------------------------ check-in (phone) -- */
+
+/* One job, one screen, thumb-sized targets. Same sizing floor as the voter
+   pages: nothing under 48px, inputs and buttons at 56-64px. */
+.checkin-shell { max-width: 520px; margin: 0 auto; padding: 12px 14px 40px; }
+
+.checkin-shell label {
+  font-size: 17px;
+  font-weight: 700;
+  margin: 16px 0 6px;
+}
+.checkin-shell input[type=text],
+.checkin-shell select {
+  min-height: 60px;
+  font-size: 21px;
+  padding: 10px 12px;
+  border: 2px solid var(--line);
+  border-radius: var(--radius);
+}
+.checkin-shell input[type=text]:focus,
+.checkin-shell select:focus { border-color: var(--brand); outline: 2px solid var(--brand); }
+#checkin-apartment { text-transform: uppercase; font-weight: 700; letter-spacing: .1em; }
+
+.checkin-shell .btn { margin-top: 20px; }
+
+.authority-choice { display: flex; gap: 10px; }
+.authority-choice button {
+  flex: 1;
+  min-height: 64px;
+  font-size: 18px;
+  font-weight: 700;
+  border-radius: var(--radius);
+  border: 2px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+  padding: 8px;
+}
+.authority-choice button[aria-pressed="true"] {
+  background: var(--brand);
+  border-color: var(--brand-dark);
+  color: #fff;
+}
+
+.recent-list { margin-top: 22px; }
+.recent-list h2 { font-size: 15px; letter-spacing: .05em; color: var(--ink-soft); }
+.recent-item {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--for);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  font-size: 16px;
+}
+.recent-item .apt { font-weight: 800; font-size: 18px; }
+
+.running-total {
+  background: var(--ok-bg);
+  border: 2px solid var(--for);
+  border-radius: var(--radius);
+  padding: 14px;
+  font-size: 19px;
+  margin-top: 14px;
+}
+.running-total b { font-size: 24px; }
+
+/* ----------------------------------------------------- credential card -- */
+
+.cred-card {
+  border: 3px dashed #444; border-radius: 12px; padding: 22px;
+  text-align: center; max-width: 420px; margin: 14px 0; background: #fff;
+}
+.cred-card .code {
+  font-size: 64px; font-weight: 800; letter-spacing: .22em;
+  font-family: Consolas, monospace; margin: 10px 0;
+}
+.cred-card .who { font-size: 20px; font-weight: 700; }
+.cred-card .ent { font-size: 22px; margin-top: 8px; }
+.cred-card .fold { font-size: 13px; color: #555; margin-top: 14px; border-top: 1px dashed #999; padding-top: 8px; }
+
+@media print {
+  body { background: #fff; }
+  .no-print, .console-bar, .demo-banner { display: none !important; }
+  .cred-card { page-break-after: always; }
+}
+
+/* --------------------------------------------------------------- report -- */
+
+.report { max-width: 900px; margin: 0 auto; padding: 24px; background: #fff; }
+.report h1 { font-size: 26px; margin-bottom: 4px; }
+.report h2 { font-size: 19px; margin-top: 28px; border-bottom: 2px solid var(--line); padding-bottom: 4px; }
+.report .wording { white-space: pre-wrap; background: #f7f9fb; border-left: 4px solid var(--brand); padding: 10px 14px; margin: 10px 0; }
+.report .sig { font-family: Consolas, monospace; font-size: 13px; white-space: pre-wrap; margin-top: 10px; }

@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block title %}Scrutineer | SGOA AGM{% endblock %}
+
+{% block body %}
+<div class="console">
+  <div class="console-bar">
+    <h1>SCRUTINEER &mdash; READ ONLY</h1>
+    <span class="pill">{{ operator.username }} &middot; {{ operator.role }}</span>
+    <a href="/mc">MC console</a>
+    <a href="#" id="signout">Sign out</a>
+  </div>
+
+  <div id="messages"></div>
+
+  <div class="panel" style="margin-bottom:16px">
+    <h2>RECONCILIATION</h2>
+    <p class="small">Every resolution must satisfy both equalities before it can be
+      certified: cast + not cast = eligible, and FOR + AGAINST + ABSTAIN = cast.</p>
+    <div class="table-scroll">
+      <table id="recon">
+        <thead><tr>
+          <th>Res</th><th>Status</th><th>Eligible</th><th>Consumed</th><th>Ballot rows</th>
+          <th>Not cast</th><th>FOR</th><th>AGAINST</th><th>ABSTAIN</th><th>Checks</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="grid grid-2">
+    <div class="panel">
+      <h2>AUDIT CHAIN</h2>
+      <button id="verify" class="btn btn-sm">VERIFY AUDIT CHAIN</button>
+      <div id="verify-result"></div>
+      <h3>Checkpoints</h3>
+      <div class="table-scroll">
+        <table id="checkpoints">
+          <thead><tr><th>Seq</th><th>Label</th><th>Head hash</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>RECENT AUDIT EVENTS</h2>
+      <p class="small">Voting events are aggregate only. No event in this log links a
+        ballot to a person &mdash; that link was never written.</p>
+      <div class="table-scroll" style="max-height:56vh;overflow-y:auto">
+        <table id="events">
+          <thead><tr><th>#</th><th>Event</th><th>Detail</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  function esc(v) { return SGOA.escape(v); }
+
+  async function load() {
+    try {
+      const recon = await SGOA.get("/api/v1/admin/reconciliation");
+      const body = SGOA.el("recon").querySelector("tbody");
+      body.innerHTML = "";
+      recon.resolutions.forEach(r => {
+        const row = document.createElement("tr");
+        if (r.sealed) {
+          row.innerHTML = "<td><b>" + esc(r.resolution) + "</b></td>" +
+            '<td><span class="status-tag tag-VOTING_OPEN">VOTING OPEN</span></td>' +
+            '<td colspan="8" class="small">Sealed while voting is open. ' +
+            "Counts become available when the MC closes the resolution.</td>";
+        } else {
+          const checks =
+            '<span class="' + (r.check_entitlements ? "check-pass" : "check-fail") + '">1</span> ' +
+            '<span class="' + (r.check_ballots ? "check-pass" : "check-fail") + '">2</span> ' +
+            '<span class="' + (r.check_choices ? "check-pass" : "check-fail") + '">3</span> ' +
+            (r.ok ? '<span class="check-pass">PASS</span>' : '<span class="check-fail">FAIL</span>');
+          row.innerHTML =
+            "<td><b>" + esc(r.resolution) + "</b></td>" +
+            '<td><span class="status-tag tag-' + esc(r.status) + '">' +
+              esc(r.status.replace(/_/g, " ")) + "</span></td>" +
+            "<td>" + r.eligible + "</td><td>" + r.consumed + "</td><td>" + r.ballot_rows + "</td>" +
+            "<td>" + r.not_cast + "</td><td>" + r.for + "</td><td>" + r.against + "</td>" +
+            "<td>" + r.abstain + "</td><td>" + checks + "</td>";
+        }
+        body.appendChild(row);
+      });
+
+      const log = await SGOA.get("/api/v1/admin/audit/log?limit=120");
+      const ebody = SGOA.el("events").querySelector("tbody");
+      ebody.innerHTML = "";
+      log.events.forEach(e => {
+        const row = document.createElement("tr");
+        row.innerHTML = "<td class='small'>" + e.sequence + "</td>" +
+          "<td class='small'><b>" + esc(e.event_type) + "</b></td>" +
+          "<td class='small mono'>" + esc(e.payload_json) + "</td>";
+        ebody.appendChild(row);
+      });
+    } catch (err) {
+      if (err.status === 401) { window.location.href = "/login?next=/scrutineer"; return; }
+      SGOA.banner("messages", err.message);
+    }
+  }
+
+  async function verify() {
+    const data = await SGOA.get("/api/v1/admin/audit/verify");
+    const v = data.verification;
+    SGOA.el("verify-result").innerHTML = v.ok
+      ? '<div class="notice notice-ok"><b>Chain intact.</b> ' + v.events +
+        " events re-hashed successfully.<br><span class='mono'>head " +
+        esc(v.head_hash || "") + "</span></div>"
+      : '<div class="notice notice-error"><b>CHAIN BROKEN at sequence ' +
+        v.first_bad_sequence + ".</b><span class='next-action'>" + esc(v.reason) +
+        " Preserve the database files and inform both scrutineers.</span></div>";
+
+    const body = SGOA.el("checkpoints").querySelector("tbody");
+    body.innerHTML = "";
+    data.checkpoints.forEach(c => {
+      const row = document.createElement("tr");
+      row.innerHTML = "<td>" + c.head_sequence + "</td><td class='small'>" + esc(c.label) +
+        "</td><td class='mono'>" + esc(c.head_hash) + "</td>";
+      body.appendChild(row);
+    });
+  }
+
+  SGOA.el("verify").addEventListener("click", verify);
+  SGOA.el("signout").addEventListener("click", async e => {
+    e.preventDefault();
+    await SGOA.post("/api/v1/auth/logout", {});
+    window.location.href = "/login";
+  });
+
+  load();
+  verify();
+  setInterval(load, 5000);
+})();
+</script>
+{% endblock %}

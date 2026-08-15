@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Projector | SGOA AGM{% endblock %}
+
+{% block body %}
+<div class="projector" id="stage">
+  <div class="num">Connecting…</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const POLL_MS = {{ cfg.poll_interval_ms }};
+  function esc(v) { return SGOA.escape(v); }
+
+  // Colour is a supplementary cue, never the message. The word is always
+  // present, and the glyph repeats the meaning without relying on hue.
+  const GLYPH = { PASSED: "✓", FAILED: "✗", TIED: "=" };
+
+  function outcomeBox(outcome) {
+    const known = Object.prototype.hasOwnProperty.call(GLYPH, outcome);
+    const cls = known ? " outcome-" + outcome : "";
+    const glyph = known ? '<span class="glyph" aria-hidden="true">' + GLYPH[outcome] + "</span>" : "";
+    return '<div class="outcome-box' + cls + '">' + glyph + esc(outcome) + "</div>";
+  }
+
+  async function tick() {
+    let s;
+    try { s = await SGOA.get("/api/v1/projector/state"); }
+    catch (err) {
+      if (err.status === 401) { window.location.href = "/login?next=/projector"; }
+      return;
+    }
+    const stage = SGOA.el("stage");
+
+    if (s.mode === "voting_open") {
+      const p = s.participation;
+      stage.innerHTML =
+        '<div class="num">' + esc(s.resolution.number) + " &mdash; VOTING OPEN</div>" +
+        '<div class="text">' + esc(s.resolution.full_text) + "</div>" +
+        '<div class="big">' + p.votes_received + " of " + p.eligible_entitlements + "</div>" +
+        '<div class="num">voting entitlements received</div>';
+    } else if (s.mode === "closed") {
+      // Voting has finished but the MC has not released the result. Show which
+      // resolution we are on and no numbers at all.
+      stage.innerHTML =
+        '<div class="num">' + esc(s.resolution.number) + " &mdash; VOTING CLOSED</div>" +
+        '<div class="text">' + esc(s.resolution.title) + "</div>" +
+        '<div class="num" style="margin-top:3vh">' +
+        (s.status === "RECONCILIATION_ERROR"
+          ? "The count is being verified by the scrutineers."
+          : "The result will be announced shortly.") + "</div>";
+    } else if (s.mode === "result") {
+      const r = s.result;
+      stage.innerHTML =
+        '<div class="num">' + esc(r.resolution) + " &mdash; RESULT</div>" +
+        '<div class="text">' + esc(r.title) + "</div>" +
+        "<table>" +
+          "<tr><td>FOR</td><td>" + r.for_count + "</td></tr>" +
+          "<tr><td>AGAINST</td><td>" + r.against_count + "</td></tr>" +
+          "<tr><td>ABSTAIN</td><td>" + r.abstain_count + "</td></tr>" +
+          "<tr><td>NOT CAST</td><td>" + r.not_cast_count + "</td></tr>" +
+          "<tr><td>ELIGIBLE</td><td>" + r.eligible_count + "</td></tr>" +
+        "</table>" +
+        outcomeBox(r.outcome) +
+        '<div class="num">Rule: ' + esc(r.rule_label) + "</div>" +
+        (r.outcome === "TIED"
+          ? '<div class="num" style="margin-top:2vh">No automatic outcome has been applied.</div>'
+          : "");
+    } else if (s.next) {
+      stage.innerHTML =
+        '<div class="num">' + esc(s.next.number) + " &mdash; " + esc(s.next.title) + "</div>" +
+        '<div class="text">' + esc(s.next.full_text) + "</div>" +
+        '<div class="num">' +
+        (s.next.finalized
+          ? "Wording is final. Voting has not opened yet."
+          : "DRAFT WORDING &mdash; under discussion, not yet final") + "</div>";
+    } else {
+      stage.innerHTML =
+        '<div class="num">' + esc(s.agm_title) + "</div>" +
+        '<div class="text">Please wait for the next item.</div>';
+    }
+  }
+
+  tick();
+  setInterval(tick, POLL_MS);
+})();
+</script>
+{% endblock %}

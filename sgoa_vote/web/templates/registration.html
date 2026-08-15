@@ -1,0 +1,228 @@
+{% extends "base.html" %}
+{% block title %}Registration desk | SGOA AGM{% endblock %}
+
+{% block body %}
+<div class="console">
+  <div class="console-bar no-print">
+    <h1>REGISTRATION DESK</h1>
+    <span class="pill">{{ operator.username }} &middot; {{ operator.role }}</span>
+    <a href="/checkin">Phone check-in</a>
+    <a href="/mc">MC console</a>
+    <a href="#" id="signout">Sign out</a>
+  </div>
+
+  <div id="messages" class="no-print"></div>
+
+  <!-- The printable card. Rendered from the issue response and never stored. -->
+  <div id="card-area"></div>
+
+  <div class="grid grid-2 no-print">
+    <div class="panel">
+      <h2>APARTMENT REGISTER</h2>
+      <p class="small" id="summary"></p>
+      <label for="filter">Find an apartment</label>
+      <input id="filter" type="text" placeholder="A7">
+      <div class="table-scroll" style="max-height:60vh;overflow-y:auto">
+        <table id="apartments">
+          <thead><tr><th>Apt</th><th>Owner</th><th>Represented by</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel" style="margin-bottom:16px">
+        <h2>CHECK IN</h2>
+        <label for="apt">Apartment</label>
+        <input id="apt" type="text" placeholder="A7">
+        <label for="who">Attendee name</label>
+        <input id="who" type="text" placeholder="Full name as verified">
+        <label for="rtype">Authority</label>
+        <select id="rtype">
+          <option value="OWN">Owner, present in person</option>
+          <option value="PROXY">Proxy held on behalf of the owner</option>
+        </select>
+        <label for="pref">Proxy reference (proxy form number)</label>
+        <input id="pref" type="text" placeholder="Leave blank for an owner">
+        <button id="assign" class="btn btn-sm">ASSIGN REPRESENTATION</button>
+        <p class="small">Maximum {{ cfg.max_proxies_per_attendee }} proxies per attendee
+          (configured). Verify proxy authority against the governing documents before
+          assigning.</p>
+      </div>
+
+      <div class="panel">
+        <h2>ATTENDEES AND CODES</h2>
+        <div class="table-scroll" style="max-height:50vh;overflow-y:auto">
+          <table id="attendees">
+            <thead><tr><th>Name</th><th>Apartments</th><th>Votes</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  let register = { apartments: [], attendees: [], summary: {} };
+
+  function esc(v) { return SGOA.escape(v); }
+
+  async function refresh() {
+    try {
+      register = await SGOA.get("/api/v1/registration/apartments");
+    } catch (err) {
+      if (err.status === 401) { window.location.href = "/login?next=/registration"; return; }
+      SGOA.banner("messages", err.message); return;
+    }
+    const s = register.summary;
+    SGOA.text("summary",
+      s.represented + " of " + s.eligible_apartments + " eligible apartments represented · " +
+      s.own + " in person · " + s.proxy + " by proxy · " +
+      s.active_entitlements + " voting entitlements active");
+    renderApartments();
+    renderAttendees();
+  }
+
+  function renderApartments() {
+    const filter = SGOA.el("filter").value.trim().toUpperCase();
+    const body = SGOA.el("apartments").querySelector("tbody");
+    body.innerHTML = "";
+    register.apartments
+      .filter(a => !filter || a.apartment_id.includes(filter))
+      .forEach(a => {
+        const row = document.createElement("tr");
+        if (!a.eligible) row.className = "dim";
+        row.innerHTML =
+          "<td><b>" + esc(a.apartment_id) + "</b></td>" +
+          "<td>" + esc(a.owner_display_name || "") + "</td>" +
+          "<td>" + (a.holder_name
+              ? esc(a.holder_name) + ' <span class="small">(' + esc((a.rep_type || "").toLowerCase()) + ")</span>"
+              : '<span class="small">not checked in</span>') + "</td>" +
+          "<td>" + (a.representation_id
+              ? "<button class='btn btn-sm btn-ghost' data-revoke='" + esc(a.representation_id) + "'>Revoke</button>"
+              : "") + "</td>";
+        body.appendChild(row);
+      });
+    body.querySelectorAll("[data-revoke]").forEach(btn => {
+      btn.addEventListener("click", () => revoke(btn.dataset.revoke));
+    });
+  }
+
+  function renderAttendees() {
+    const body = SGOA.el("attendees").querySelector("tbody");
+    body.innerHTML = "";
+    register.attendees.forEach(a => {
+      const row = document.createElement("tr");
+      row.innerHTML =
+        "<td>" + esc(a.display_name) + "</td>" +
+        "<td class='small'>" + esc(a.apartments || "-") + "</td>" +
+        "<td><b>" + a.entitlements + "</b></td>" +
+        "<td>" + (a.credential_id
+            ? "<button class='btn btn-sm btn-ghost' data-reset='" + esc(a.credential_id) + "'>Reset code</button>"
+            : "<button class='btn btn-sm' data-issue='" + esc(a.attendee_id) + "'>Issue code</button>") + "</td>";
+      body.appendChild(row);
+    });
+    body.querySelectorAll("[data-issue]").forEach(b =>
+      b.addEventListener("click", () => issue(b.dataset.issue)));
+    body.querySelectorAll("[data-reset]").forEach(b =>
+      b.addEventListener("click", () => reset(b.dataset.reset)));
+  }
+
+  function showCard(result, replacement) {
+    SGOA.el("card-area").innerHTML =
+      '<div class="cred-card">' +
+        '<div class="who">' + esc(result.attendee_name || "") + "</div>" +
+        '<div class="code">' + esc(result.code) + "</div>" +
+        '<div class="ent">' + result.entitlement_count + " voting entitlement" +
+          (result.entitlement_count === 1 ? "" : "s") + "</div>" +
+        '<div class="fold">Private. Fold before handing over.<br>' +
+          (replacement ? "Replacement code &mdash; the previous code no longer works.<br>" : "") +
+          "Keep this code to yourself. It cannot be reissued without checking in again." +
+        "</div>" +
+      "</div>" +
+      '<button class="btn btn-sm no-print" id="print-card">PRINT CARD</button>' +
+      '<button class="btn btn-sm btn-ghost no-print" id="hide-card">DONE</button>';
+    SGOA.el("print-card").addEventListener("click", () => window.print());
+    SGOA.el("hide-card").addEventListener("click", () => {
+      SGOA.el("card-area").innerHTML = "";     // the code is never shown again
+    });
+    window.scrollTo(0, 0);
+  }
+
+  async function assign() {
+    SGOA.banner("messages", null);
+    const body = {
+      apartment_id: SGOA.el("apt").value,
+      attendee_name: SGOA.el("who").value,
+      rep_type: SGOA.el("rtype").value,
+      proxy_ref: SGOA.el("pref").value || null,
+    };
+    try {
+      await SGOA.post("/api/v1/registration/representations", body);
+    } catch (err) {
+      if (err.status === 409 && err.payload && err.payload.existing_representation_id) {
+        const reason = prompt(err.message + "\n\nEnter the authorisation and reason to override:");
+        if (!reason) return;
+        body.override_reason = reason;
+        try { await SGOA.post("/api/v1/registration/representations", body); }
+        catch (e2) { SGOA.banner("messages", e2.message); return; }
+      } else {
+        SGOA.banner("messages", err.message); return;
+      }
+    }
+    SGOA.el("apt").value = "";
+    SGOA.el("pref").value = "";
+    await refresh();
+  }
+
+  async function issue(attendeeId) {
+    try {
+      const res = await SGOA.post("/api/v1/registration/credentials/issue",
+                                  { attendee_id: attendeeId });
+      showCard(res, false);
+      await refresh();
+    } catch (err) { SGOA.banner("messages", err.message); }
+  }
+
+  async function reset(credentialId) {
+    const reason = prompt("Reason for resetting this code (card lost, phone failed, ...):", "");
+    if (reason === null) return;
+    try {
+      const res = await SGOA.post(
+        "/api/v1/registration/credentials/" + encodeURIComponent(credentialId) + "/reset",
+        { reason: reason });
+      showCard(res, true);
+      SGOA.banner("messages",
+        "New code issued. Votes already cast remain cast and are not restored.", null, "ok");
+      await refresh();
+    } catch (err) { SGOA.banner("messages", err.message); }
+  }
+
+  async function revoke(representationId) {
+    const reason = prompt("Reason for revoking this representation:", "");
+    if (!reason) return;
+    try {
+      await SGOA.post("/api/v1/registration/representations/" +
+                      encodeURIComponent(representationId) + "/revoke", { reason: reason });
+      SGOA.banner("messages",
+        "Revoked. Ballots already accepted are anonymous and are never removed.", null, "ok");
+      await refresh();
+    } catch (err) { SGOA.banner("messages", err.message); }
+  }
+
+  SGOA.el("assign").addEventListener("click", assign);
+  SGOA.el("filter").addEventListener("input", renderApartments);
+  SGOA.el("signout").addEventListener("click", async e => {
+    e.preventDefault();
+    await SGOA.post("/api/v1/auth/logout", {});
+    window.location.href = "/login";
+  });
+
+  refresh();
+})();
+</script>
+{% endblock %}

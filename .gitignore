@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Live meeting state. Never commit a real AGM's databases, keys or exports.
+data/
+backups/
+export/
+config.json

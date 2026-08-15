@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ r.agm.title }} — Final voting report</title>
+<link rel="stylesheet" href="/static/app.css">
+<style>
+  /* Inline so the archived copy renders correctly with no server running. */
+  body { background: #fff; font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+         color: #14181d; font-size: 15px; line-height: 1.5; }
+  .report { max-width: 900px; margin: 0 auto; padding: 24px; }
+  table.kv { width: 100%; border-collapse: collapse; margin: 12px 0; }
+  table.kv td { border: 1px solid #c8d0d9; padding: 6px 10px; }
+  table.kv td:first-child { background: #f0f2f5; width: 38%; font-weight: 600; }
+  .counts { border-collapse: collapse; margin: 10px 0; }
+  .counts td { border: 1px solid #c8d0d9; padding: 6px 14px; font-size: 17px; font-weight: 700; }
+  .counts td.n { text-align: right; }
+  .wording { white-space: pre-wrap; background: #f7f9fb; border-left: 4px solid #14456b;
+             padding: 10px 14px; margin: 10px 0; }
+  .mono { font-family: Consolas, monospace; font-size: 12px; word-break: break-all; }
+  .pass { color: #1c6b3a; font-weight: 700; }
+  .fail { color: #97281f; font-weight: 700; }
+  h2 { margin-top: 30px; border-bottom: 2px solid #c8d0d9; padding-bottom: 4px; }
+  .sig { font-family: Consolas, monospace; font-size: 12.5px; white-space: pre-wrap;
+         border: 1px solid #c8d0d9; padding: 14px; margin-top: 12px; }
+</style>
+</head>
+<body>
+<div class="report">
+
+  <h1>{{ r.agm.title }}</h1>
+  <p>{{ r.association_name }}<br>{{ r.agm.agm_date }}{% if r.agm.location %} &middot; {{ r.agm.location }}{% endif %}</p>
+  <p class="mono">Report generated {{ r.generated_display }}</p>
+
+  <h2>Summary</h2>
+  <table class="kv">
+    <tr><td>Eligible apartments</td><td>{{ r.summary.eligible_apartments }}</td></tr>
+    <tr><td>Apartments represented</td><td>{{ r.summary.represented }}</td></tr>
+    <tr><td>In-person representations</td><td>{{ r.summary.own }}</td></tr>
+    <tr><td>Proxy representations</td><td>{{ r.summary.proxy }}</td></tr>
+    <tr><td>Total voting entitlements active</td><td>{{ r.summary.active_entitlements }}</td></tr>
+    <tr><td>Voting codes issued</td><td>{{ r.summary.active_credentials }}</td></tr>
+    <tr><td>Maximum proxies per attendee (configured)</td><td>{{ r.governance.max_proxies_per_attendee }}</td></tr>
+    <tr><td>Chair casting vote</td><td>{{ "enabled" if r.governance.chair_casting_vote_enabled else "disabled" }}</td></tr>
+    <tr><td>AGM configuration hash</td><td class="mono">{{ r.config_hash }}</td></tr>
+    <tr><td>Software version / build</td><td class="mono">{{ r.software_version }} / {{ r.build_hash }}</td></tr>
+  </table>
+
+  <h2>Resolutions</h2>
+  {% for s in r.resolutions %}
+  <h3>{{ s.number }} &nbsp; {{ s.title }}</h3>
+  <p><b>Outcome: {{ s.outcome.replace("_", " ") }}</b>
+     &nbsp;&middot;&nbsp; Version {{ s.version }}
+     &nbsp;&middot;&nbsp; Rule: {{ s.rule_label }}</p>
+
+  <div class="wording">{{ s.full_text }}</div>
+  <p class="mono">{{ s.text_hash }}</p>
+
+  {% if s.voted %}
+  <table class="counts">
+    <tr><td>FOR</td><td class="n">{{ s["for"] }}</td></tr>
+    <tr><td>AGAINST</td><td class="n">{{ s.against }}</td></tr>
+    <tr><td>ABSTAIN</td><td class="n">{{ s.abstain }}</td></tr>
+    <tr><td>NOT CAST</td><td class="n">{{ s.not_cast }}</td></tr>
+    <tr><td>CAST</td><td class="n">{{ s.cast }}</td></tr>
+    <tr><td>ELIGIBLE</td><td class="n">{{ s.eligible }}</td></tr>
+  </table>
+
+  <p class="mono">Opened {{ s.opened_display }} &nbsp; Closed {{ s.closed_display }}</p>
+  <p>
+    Reconciliation:
+    <span class="{{ 'pass' if s.reconciliation.check_entitlements else 'fail' }}">
+      {{ "PASS" if s.reconciliation.check_entitlements else "FAIL" }}</span>
+    {{ s.reconciliation.labels.check_entitlements }} &nbsp;|&nbsp;
+    <span class="{{ 'pass' if s.reconciliation.check_ballots else 'fail' }}">
+      {{ "PASS" if s.reconciliation.check_ballots else "FAIL" }}</span>
+    {{ s.reconciliation.labels.check_ballots }} &nbsp;|&nbsp;
+    <span class="{{ 'pass' if s.reconciliation.check_choices else 'fail' }}">
+      {{ "PASS" if s.reconciliation.check_choices else "FAIL" }}</span>
+    {{ s.reconciliation.labels.check_choices }}
+  </p>
+  {% else %}
+  <p><b>This resolution was not put to a vote. No ballots were cast on it and no
+     counts are reported.</b></p>
+  {% endif %}
+
+  {% if s.versions | length > 1 %}
+  <p class="mono">Version history:
+    {% for v in s.versions %}v{{ v.version }} {{ v.text_hash }}{% if v.superseded %} (superseded){% endif %}<br>{% endfor %}
+  </p>
+  {% endif %}
+
+  {% if s.snapshot_hash %}<p class="mono">Result snapshot: {{ s.snapshot_hash }}</p>{% endif %}
+  {% if s.disposition_note %}
+  <p><b>Chair / General Body disposition note:</b><br>{{ s.disposition_note }}</p>
+  {% endif %}
+  {% endfor %}
+
+  <h2>Audit</h2>
+  <p>The audit chain was re-hashed at the time this report was produced:
+     <b>{{ "INTACT" if r.audit.ok else "BROKEN" }}</b> across {{ r.audit.events }} events.</p>
+  <table class="kv">
+    {% for c in r.checkpoints %}
+    <tr><td>{{ c.label }} (seq {{ c.head_sequence }})</td><td class="mono">{{ c.head_hash }}</td></tr>
+    {% endfor %}
+  </table>
+
+  <h2>Certification</h2>
+  <p style="white-space:pre-wrap">{{ r.certification_text }}</p>
+  <div class="sig">Scrutineer 1: __________________  Signature: __________  Date: ______
+
+Scrutineer 2: __________________  Signature: __________  Date: ______
+
+Final audit-chain head: SHA256: {{ hashes.audit_chain_head }}
+Ballot database hash:   SHA256: {{ hashes["ballot.db"] }}
+Eligibility DB hash:    SHA256: {{ hashes["eligibility.db"] }}
+Audit database hash:    SHA256: {{ hashes["audit.db"] }}
+Software build hash:    SHA256: {{ hashes.software_build }}</div>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Administrator | SGOA AGM{% endblock %}
+
+{% block body %}
+<div class="console">
+  <div class="console-bar">
+    <h1>ADMINISTRATOR</h1>
+    <span class="pill">{{ operator.username }} &middot; {{ operator.role }}</span>
+    <a href="/mc">MC</a><a href="/registration">Registration</a><a href="/scrutineer">Scrutineer</a>
+    <a href="#" id="signout">Sign out</a>
+  </div>
+
+  <div id="messages"></div>
+
+  <div class="grid grid-2">
+    <div>
+      <div class="panel" style="margin-bottom:16px">
+        <h2>MEETING</h2>
+        <div id="agm-summary"></div>
+        <button id="open-reg" class="btn btn-sm">OPEN REGISTRATION</button>
+        <button id="backup" class="btn btn-sm btn-ghost">BACK UP NOW</button>
+      </div>
+
+      <div class="panel">
+        <h2>FINAL REPORT AND CERTIFICATION BUNDLE</h2>
+        <p class="small">Permitted only when no resolution is open and none is in
+          reconciliation error. Generating it finalizes the AGM, anchors the audit chain
+          and writes the bundle to the export directory.</p>
+        <label for="reauth">Re-enter your password to confirm</label>
+        <input id="reauth" type="password" autocomplete="current-password">
+        <button id="final" class="btn btn-sm btn-danger">GENERATE FINAL REPORT</button>
+        <div id="bundle"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>HEALTH</h2>
+      <button id="refresh-health" class="btn btn-sm btn-ghost">REFRESH</button>
+      <div id="health"></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  function esc(v) { return SGOA.escape(v); }
+
+  async function loadSummary() {
+    try {
+      const s = await SGOA.get("/api/v1/admin/summary");
+      SGOA.el("agm-summary").innerHTML =
+        "<p><b>" + esc(s.agm.title) + "</b><br>" + esc(s.agm.agm_date) + " · " +
+        esc(s.agm.location || "") + '<br><span class="status-tag">' +
+        esc(s.agm.status.replace(/_/g, " ")) + "</span></p>" +
+        '<p class="small">' + s.summary.represented + " of " + s.summary.eligible_apartments +
+        " apartments represented · " + s.summary.active_entitlements +
+        " entitlements active · " + s.active_sessions + " voter sessions connected</p>" +
+        '<p class="mono">config hash ' + esc(s.agm.config_hash) + "</p>";
+    } catch (err) {
+      if (err.status === 401) { window.location.href = "/login?next=/admin"; return; }
+      SGOA.banner("messages", err.message);
+    }
+  }
+
+  async function loadHealth() {
+    try {
+      const h = await SGOA.get("/api/v1/health");
+      const integrity = Object.entries(h.database_integrity)
+        .map(([k, v]) => k + ": " + v).join("<br>");
+      SGOA.el("health").innerHTML =
+        '<p class="small">Version ' + esc(h.version) + " · AGM " + esc(h.agm_status) +
+        " · " + h.resolutions_open + " resolution(s) open · " +
+        h.active_voter_sessions + " voter sessions</p>" +
+        '<p class="small"><b>Database integrity</b><br>' + integrity + "</p>" +
+        '<p class="small"><b>Journal mode</b><br>' +
+        Object.entries(h.journal_modes).map(([k, v]) => k + ": " + v).join("<br>") +
+        '<br><span class="small">Rollback journal is deliberate: it is what makes a vote ' +
+        "commit atomically across all three database files.</span></p>" +
+        '<p class="small"><b>Audit chain</b> ' +
+        (h.audit_chain.ok ? '<span class="check-pass">intact</span>'
+                          : '<span class="check-fail">BROKEN at ' + h.audit_chain.first_bad_sequence + "</span>") +
+        " (" + h.audit_chain.events + " events)</p>" +
+        '<p class="small"><b>Disk free</b> ' + h.disk_free_mb + " MB of " + h.disk_total_mb + " MB</p>";
+    } catch (err) { SGOA.banner("messages", err.message); }
+  }
+
+  SGOA.el("open-reg").addEventListener("click", async () => {
+    try {
+      await SGOA.post("/api/v1/admin/agm/open-registration", {});
+      SGOA.banner("messages", "Registration is open.", null, "ok");
+      loadSummary();
+    } catch (err) { SGOA.banner("messages", err.message); }
+  });
+
+  SGOA.el("backup").addEventListener("click", async () => {
+    try {
+      const res = await SGOA.post("/api/v1/admin/backup", {});
+      SGOA.banner("messages", "Backup written to " + res.path, null, "ok");
+    } catch (err) { SGOA.banner("messages", err.message); }
+  });
+
+  SGOA.el("final").addEventListener("click", async () => {
+    if (!confirm("Generate the final report and finalize this AGM?")) return;
+    try {
+      const res = await SGOA.post("/api/v1/admin/reports/final",
+                                  { password: SGOA.el("reauth").value });
+      SGOA.el("reauth").value = "";
+      SGOA.el("bundle").innerHTML =
+        '<div class="notice notice-ok"><b>Bundle written.</b><br>' + esc(res.path) +
+        '<br><span class="small">' + res.files.map(esc).join(" · ") + "</span>" +
+        '<br><span class="mono">audit head ' + esc(res.hashes.audit_chain_head) + "</span>" +
+        '<span class="next-action">Copy this directory to two separate USB drives held by ' +
+        "different scrutineers.</span></div>";
+      loadSummary();
+    } catch (err) { SGOA.banner("messages", err.message, err.payload && err.payload.next_action); }
+  });
+
+  SGOA.el("refresh-health").addEventListener("click", loadHealth);
+  SGOA.el("signout").addEventListener("click", async e => {
+    e.preventDefault();
+    await SGOA.post("/api/v1/auth/logout", {});
+    window.location.href = "/login";
+  });
+
+  loadSummary();
+  loadHealth();
+})();
+</script>
+{% endblock %}

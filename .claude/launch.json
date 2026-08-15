@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "sgoa-vote",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "sgoa_vote", "run"],
+      "port": 8000
+    }
+  ]
+}

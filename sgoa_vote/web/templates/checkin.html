@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+{% block title %}Check in | SGOA AGM{% endblock %}
+
+{% block body %}
+<div class="checkin-shell">
+
+  <div class="voter-header" style="padding-bottom:4px">
+    <h1 style="font-size:19px">CHECK IN</h1>
+    <div class="sub" style="font-size:15px">{{ agm.title if agm else "Annual General Meeting" }}</div>
+  </div>
+
+  <div id="messages"></div>
+
+  <section class="card" style="padding:16px">
+    <label for="checkin-apartment">Apartment</label>
+    <input id="checkin-apartment" type="text" list="apartment-list"
+           inputmode="text" autocomplete="off" autocapitalize="characters"
+           spellcheck="false" placeholder="A7">
+    <datalist id="apartment-list"></datalist>
+    <p class="small" id="apartment-hint" style="margin:6px 0 0"></p>
+
+    <label for="checkin-name">Attendee name</label>
+    <input id="checkin-name" type="text" list="attendee-list"
+           autocomplete="off" placeholder="Full name as verified">
+    <datalist id="attendee-list"></datalist>
+
+    <label id="authority-label">Authority</label>
+    <div class="authority-choice" role="group" aria-labelledby="authority-label">
+      <button type="button" id="btn-own" aria-pressed="true">Owner<br>in person</button>
+      <button type="button" id="btn-proxy" aria-pressed="false">Proxy<br>on their behalf</button>
+    </div>
+
+    <div id="proxy-block" style="display:none">
+      <label for="checkin-proxyref">Proxy form number</label>
+      <input id="checkin-proxyref" type="text" autocomplete="off" placeholder="e.g. PROXY-B4">
+    </div>
+
+    <button id="checkin-submit" class="btn">ASSIGN REPRESENTATION</button>
+
+    <div id="running" class="running-total" style="display:none"></div>
+
+    <p class="small" style="margin-top:16px">
+      Verify owner or proxy authority against the governing documents before assigning.
+      Maximum {{ cfg.max_proxies_per_attendee }} proxies per attendee (configured).
+    </p>
+    <p class="small">
+      Voting codes are issued at the desk on the
+      <a href="/registration">full registration screen</a>, so the printed card can be
+      folded and handed over privately.
+    </p>
+  </section>
+
+  <div class="recent-list">
+    <h2>ASSIGNED FROM THIS DEVICE</h2>
+    <div id="recent"></div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  let register = { apartments: [], attendees: [] };
+  let repType = "OWN";
+  const recent = [];
+
+  function esc(v) { return SGOA.escape(v); }
+
+  async function loadRegister() {
+    try {
+      register = await SGOA.get("/api/v1/registration/apartments");
+    } catch (err) {
+      if (err.status === 401) { window.location.href = "/login?next=/checkin"; return; }
+      SGOA.banner("messages", err.message, "Reload the page if this persists.");
+      return;
+    }
+
+    // Only offer apartments that are eligible and not already represented --
+    // typing an unavailable flat is the commonest mistake at a busy desk.
+    const free = register.apartments.filter(a => a.eligible && !a.representation_id);
+    SGOA.el("apartment-list").innerHTML = free
+      .map(a => '<option value="' + esc(a.apartment_id) + '">' +
+                esc(a.owner_display_name || "") + "</option>").join("");
+
+    SGOA.el("attendee-list").innerHTML = register.attendees
+      .map(a => '<option value="' + esc(a.display_name) + '"></option>').join("");
+
+    SGOA.text("apartment-hint",
+      free.length + " of " + register.apartments.length + " apartments still to check in");
+  }
+
+  function setAuthority(type) {
+    repType = type;
+    SGOA.el("btn-own").setAttribute("aria-pressed", type === "OWN");
+    SGOA.el("btn-proxy").setAttribute("aria-pressed", type === "PROXY");
+    SGOA.show("proxy-block", type === "PROXY");
+  }
+
+  function showRunning(name, count) {
+    SGOA.el("running").style.display = "";
+    SGOA.el("running").innerHTML =
+      esc(name) + " now holds <b>" + count + "</b> voting entitlement" +
+      (count === 1 ? "" : "s") + ".<br>" +
+      "<span class='small'>Add another apartment for this person, or send them to the " +
+      "desk for their code.</span>";
+  }
+
+  function addRecent(apartment, name, type, count) {
+    recent.unshift({ apartment: apartment, name: name, type: type, count: count });
+    SGOA.el("recent").innerHTML = recent.slice(0, 12).map(item =>
+      '<div class="recent-item"><span class="apt">' + esc(item.apartment) + "</span> &rarr; " +
+      esc(item.name) + ' <span class="small">(' + esc(item.type.toLowerCase()) +
+      ", holds " + item.count + ")</span></div>").join("");
+  }
+
+  async function assign() {
+    const apartment = SGOA.el("checkin-apartment").value.trim().toUpperCase();
+    const name = SGOA.el("checkin-name").value.trim();
+    SGOA.banner("messages", null);
+
+    if (!apartment) {
+      SGOA.banner("messages", "Enter the apartment number.", null, "warn"); return;
+    }
+    if (!name) {
+      SGOA.banner("messages", "Enter the attendee's name.", null, "warn"); return;
+    }
+
+    const body = {
+      apartment_id: apartment,
+      attendee_name: name,
+      rep_type: repType,
+      proxy_ref: repType === "PROXY"
+        ? (SGOA.el("checkin-proxyref").value.trim() || null) : null,
+    };
+
+    const button = SGOA.el("checkin-submit");
+    button.disabled = true;
+    try {
+      let result;
+      try {
+        result = await SGOA.post("/api/v1/registration/representations", body);
+      } catch (err) {
+        if (err.status === 409 && err.payload && err.payload.existing_representation_id) {
+          const reason = prompt(err.message + "\n\nEnter the authorisation and reason to override:");
+          if (!reason) { return; }
+          body.override_reason = reason;
+          result = await SGOA.post("/api/v1/registration/representations", body);
+        } else {
+          throw err;
+        }
+      }
+
+      addRecent(apartment, name, repType, result.entitlement_count);
+      showRunning(name, result.entitlement_count);
+
+      // Keep the name so the next proxy for the same person is one field away.
+      SGOA.el("checkin-apartment").value = "";
+      SGOA.el("checkin-proxyref").value = "";
+      SGOA.el("checkin-apartment").focus();
+      await loadRegister();
+    } catch (err) {
+      SGOA.banner("messages", err.message,
+                  err.payload && err.payload.next_action);
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  SGOA.el("btn-own").addEventListener("click", () => setAuthority("OWN"));
+  SGOA.el("btn-proxy").addEventListener("click", () => setAuthority("PROXY"));
+  SGOA.el("checkin-submit").addEventListener("click", assign);
+  SGOA.el("checkin-apartment").addEventListener("keydown", e => {
+    if (e.key === "Enter") SGOA.el("checkin-name").focus();
+  });
+  SGOA.el("checkin-name").addEventListener("keydown", e => {
+    if (e.key === "Enter") assign();
+  });
+
+  // A new person clears the running total from the previous one.
+  SGOA.el("checkin-name").addEventListener("input", () => {
+    SGOA.show("running", false);
+  });
+
+  loadRegister();
+})();
+</script>
+{% endblock %}

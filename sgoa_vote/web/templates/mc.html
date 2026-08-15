@@ -1,0 +1,332 @@
+{% extends "base.html" %}
+{% block title %}MC console | SGOA AGM{% endblock %}
+
+{% block body %}
+<div class="console">
+  <div class="console-bar">
+    <h1>MC CONSOLE</h1>
+    <span class="pill">{{ operator.username }} &middot; {{ operator.role }}</span>
+    <a href="/projector" target="_blank">Projector</a>
+    <a href="/scrutineer">Scrutineer</a>
+    <a href="/registration">Registration</a>
+    <a href="#" id="signout">Sign out</a>
+  </div>
+
+  <div id="messages"></div>
+
+  <div class="grid grid-2">
+    <div class="panel">
+      <h2>CURRENT RESOLUTION</h2>
+      <div id="current"></div>
+    </div>
+
+    <div>
+      <div class="panel" style="margin-bottom:16px">
+        <h2>AGENDA</h2>
+        <div class="table-scroll"><table id="agenda"><tbody></tbody></table></div>
+      </div>
+
+      <div class="panel">
+        <h2>ADD A RESOLUTION</h2>
+        <label for="new-number">Number</label>
+        <input id="new-number" type="text" placeholder="R6">
+        <label for="new-title">Short title</label>
+        <input id="new-title" type="text" placeholder="Lift replacement">
+        <label for="new-text">Exact wording to be put to the vote</label>
+        <textarea id="new-text"></textarea>
+        <label for="new-rule">Voting rule</label>
+        <select id="new-rule">
+          <option value="FOR_GT_AGAINST">FOR &gt; AGAINST (default)</option>
+          <option value="TWO_THIRDS_OF_CAST">Two-thirds of votes cast</option>
+          <option value="MAJORITY_OF_ALL_ELIGIBLE">Majority of all eligible entitlements</option>
+        </select>
+        <p class="small">The rule is chosen deliberately. It is never inferred from the wording.</p>
+        <button id="create-btn" class="btn btn-sm">CREATE DRAFT</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const POLL_MS = {{ cfg.poll_interval_ms }};
+  let resolutions = [];
+  let selectedId = null;
+  let pollTimer = null;
+
+  const OUTCOME_GLYPH = { PASSED: "✓", FAILED: "✗", TIED: "=" };
+
+  const RULE_LABEL = {
+    FOR_GT_AGAINST: "FOR &gt; AGAINST",
+    TWO_THIRDS_OF_CAST: "Two-thirds of votes cast",
+    MAJORITY_OF_ALL_ELIGIBLE: "Majority of all eligible entitlements",
+  };
+
+  function esc(v) { return SGOA.escape(v); }
+
+  function selected() {
+    return resolutions.find(r => r.resolution_id === selectedId) || null;
+  }
+
+  async function refresh() {
+    try {
+      const data = await SGOA.get("/api/v1/admin/resolutions");
+      resolutions = data.resolutions;
+      SGOA.el("new-number").placeholder = data.next_number;
+
+      const open = resolutions.find(r => r.status === "VOTING_OPEN");
+      if (open) selectedId = open.resolution_id;
+      if (!selected()) {
+        const live = resolutions.filter(r => !r.superseded_by);
+        selectedId = live.length ? live[0].resolution_id : null;
+      }
+      renderAgenda();
+      await renderCurrent();
+    } catch (err) {
+      if (err.status === 401) { window.location.href = "/login?next=/mc"; return; }
+      SGOA.banner("messages", err.message, "Reload the page if this persists.");
+    }
+  }
+
+  function renderAgenda() {
+    const body = SGOA.el("agenda").querySelector("tbody");
+    body.innerHTML = "";
+    resolutions.forEach(r => {
+      const row = document.createElement("tr");
+      if (r.superseded_by) row.className = "dim";
+      row.innerHTML =
+        "<td><b>" + esc(r.number) + "</b>" + (r.version > 1 ? " v" + r.version : "") + "</td>" +
+        "<td>" + esc(r.title) + (r.superseded_by ? ' <span class="small">(superseded)</span>' : "") + "</td>" +
+        '<td><span class="status-tag tag-' + esc(r.status) + '">' +
+          esc(r.status.replace(/_/g, " ")) + "</span></td>";
+      if (!r.superseded_by) {
+        row.style.cursor = "pointer";
+        row.addEventListener("click", async () => { selectedId = r.resolution_id; await renderCurrent(); });
+      }
+      body.appendChild(row);
+    });
+  }
+
+  async function renderCurrent() {
+    const r = selected();
+    const box = SGOA.el("current");
+    if (!r) { box.innerHTML = '<p class="small">No resolutions yet. Create one to begin.</p>'; return; }
+
+    let html =
+      '<div class="resolution-number">' + esc(r.number) +
+        (r.version > 1 ? " (version " + r.version + ")" : "") + "</div>" +
+      "<h3 style='margin-top:4px'>" + esc(r.title) + "</h3>" +
+      '<span class="status-tag tag-' + esc(r.status) + '">' + esc(r.status.replace(/_/g, " ")) + "</span> " +
+      '<span class="small">Rule: ' + (RULE_LABEL[r.voting_rule] || esc(r.voting_rule)) + "</span>";
+
+    if (r.status === "DRAFT") {
+      html +=
+        "<label>Exact wording</label><textarea id='edit-text'>" + esc(r.full_text) + "</textarea>" +
+        "<label>Short title</label><input id='edit-title' type='text' value='" + esc(r.title) + "'>" +
+        "<div style='margin-top:10px'>" +
+        "<button class='btn btn-sm btn-ghost' data-act='save'>SAVE EDIT</button>" +
+        "<button class='btn btn-sm' data-act='finalize'>FINALIZE</button>" +
+        "<button class='btn btn-sm btn-ghost' data-act='withdraw'>WITHDRAW</button>" +
+        "<button class='btn btn-sm btn-ghost' data-act='notput'>NOT PUT TO VOTE</button>" +
+        "</div>";
+    } else {
+      html += '<div class="wording" style="white-space:pre-wrap;background:#f7f9fb;' +
+              'border-left:4px solid var(--brand);padding:10px 14px;margin:12px 0">' +
+              esc(r.full_text) + "</div>";
+      if (r.text_hash) html += '<p class="mono">' + esc(r.text_hash) + "</p>";
+    }
+
+    if (r.status === "FINALIZED") {
+      html +=
+        "<div style='margin-top:10px'>" +
+        "<button class='btn btn-sm' data-act='open'>OPEN VOTING</button>" +
+        "<button class='btn btn-sm btn-ghost' data-act='amend'>CREATE AMENDMENT</button>" +
+        "<button class='btn btn-sm btn-ghost' data-act='withdraw'>WITHDRAW</button>" +
+        "<button class='btn btn-sm btn-ghost' data-act='notput'>NOT PUT TO VOTE</button>" +
+        "</div>" +
+        "<div id='amend-box' style='display:none;margin-top:10px'>" +
+        "<label>Amended wording (creates version " + (r.version + 1) + ")</label>" +
+        "<textarea id='amend-text'>" + esc(r.full_text) + "</textarea>" +
+        "<button class='btn btn-sm' data-act='amend-save'>SAVE AMENDMENT</button></div>";
+    }
+
+    box.innerHTML = html;
+
+    if (r.status === "VOTING_OPEN") await renderParticipation(r);
+    if (["VOTING_CLOSED", "PASSED", "FAILED", "TIED", "RECONCILIATION_ERROR"].includes(r.status)) {
+      await renderResult(r);
+    }
+
+    box.querySelectorAll("[data-act]").forEach(btn => {
+      btn.addEventListener("click", () => act(btn.dataset.act, r));
+    });
+  }
+
+  async function renderParticipation(r) {
+    const p = await SGOA.get("/api/v1/admin/participation/" + encodeURIComponent(r.resolution_id));
+    SGOA.el("current").insertAdjacentHTML("beforeend",
+      '<div class="metric-row">' +
+        '<div class="metric"><div class="value">' + p.eligible_entitlements + '</div>' +
+          '<div class="label">Eligible entitlements</div></div>' +
+        '<div class="metric"><div class="value">' + p.votes_received + '</div>' +
+          '<div class="label">Votes received</div></div>' +
+        '<div class="metric"><div class="value">' + p.not_yet_cast + '</div>' +
+          '<div class="label">Not yet cast</div></div>' +
+      "</div>" +
+      '<div class="progress"><span style="width:' + p.percent + '%"></span></div>' +
+      '<p class="sealed" style="margin-top:14px">Interim FOR / AGAINST / ABSTAIN totals are HIDDEN.</p>' +
+      "<button class='btn btn-sm btn-danger' data-act='close'>CLOSE VOTING</button>");
+  }
+
+  async function renderResult(r) {
+    const data = await SGOA.get("/api/v1/admin/results/" + encodeURIComponent(r.resolution_id));
+    const rec = data.reconciliation;
+    let html = "";
+
+    if (r.status === "RECONCILIATION_ERROR") {
+      html += '<div class="notice notice-error" style="margin-top:14px">' +
+        "<b>RECONCILIATION ERROR &mdash; no outcome has been calculated.</b>" +
+        '<span class="next-action">The scrutineers and administrator must investigate ' +
+        "before this AGM can be certified.</span></div>";
+    }
+
+    const res = data.result;
+    if (res) {
+      html +=
+        '<table class="result-table" style="margin-top:14px;max-width:340px">' +
+        "<tr><td>FOR</td><td class='n'>" + res.for_count + "</td></tr>" +
+        "<tr><td>AGAINST</td><td class='n'>" + res.against_count + "</td></tr>" +
+        "<tr><td>ABSTAIN</td><td class='n'>" + res.abstain_count + "</td></tr>" +
+        "<tr><td>NOT CAST</td><td class='n'>" + res.not_cast_count + "</td></tr>" +
+        "<tr class='total'><td>ELIGIBLE</td><td class='n'>" + res.eligible_count + "</td></tr>" +
+        "<tr><td>CAST</td><td class='n'>" + res.cast_count + "</td></tr>" +
+        "</table>" +
+        '<div class="outcome-badge outcome-' + esc(res.outcome) + '">' +
+          (OUTCOME_GLYPH[res.outcome]
+            ? '<span aria-hidden="true">' + OUTCOME_GLYPH[res.outcome] + "</span> " : "") +
+          esc(res.outcome) + "</div>" +
+        '<p class="small">Rule: ' + esc(res.rule_label) + "</p>";
+
+      if (res.outcome === "TIED") {
+        html += '<div class="notice notice-warn">No automatic outcome has been applied.' +
+          '<span class="next-action">Record any Chair or General Body action separately.</span></div>';
+      }
+    }
+
+    html +=
+      '<h3>Reconciliation</h3><p class="small">' +
+      '<span class="' + (rec.check_entitlements ? "check-pass" : "check-fail") + '">' +
+        (rec.check_entitlements ? "PASS" : "FAIL") + "</span> &mdash; " + esc(rec.labels.check_entitlements) + "<br>" +
+      '<span class="' + (rec.check_ballots ? "check-pass" : "check-fail") + '">' +
+        (rec.check_ballots ? "PASS" : "FAIL") + "</span> &mdash; " + esc(rec.labels.check_ballots) + "<br>" +
+      '<span class="' + (rec.check_choices ? "check-pass" : "check-fail") + '">' +
+        (rec.check_choices ? "PASS" : "FAIL") + "</span> &mdash; " + esc(rec.labels.check_choices) + "</p>";
+
+    if (r.disposition_note) {
+      html += "<h3>Disposition note</h3><p class='small' style='white-space:pre-wrap'>" +
+              esc(r.disposition_note) + "</p>";
+    }
+
+    // The result normally goes to the projector the moment voting closes, so
+    // there is nothing to release. The button only appears if publishing was
+    // switched to manual, or if reconciliation blocked it.
+    let publishControl;
+    if (r.status === "RECONCILIATION_ERROR") {
+      publishControl = "<p class='small'><b>Nothing has been shown to the hall.</b> " +
+        "The projector shows that the count is being verified.</p>";
+    } else if (r.result_shown) {
+      publishControl = "<p class='small check-pass'>&#10003; This result is on the " +
+        "projector. It was published when voting closed.</p>";
+    } else {
+      publishControl =
+        "<button class='btn btn-sm' data-act='show'>SHOW RESULT ON PROJECTOR</button>";
+    }
+
+    html +=
+      "<div style='margin-top:10px'>" + publishControl +
+      "<button class='btn btn-sm btn-ghost' data-act='note'>RECORD DISPOSITION NOTE</button>" +
+      "</div>" +
+      "<div id='note-box' style='display:none;margin-top:8px'>" +
+      "<textarea id='note-text' placeholder='Chair or General Body action, recorded separately from the anonymous ballots'></textarea>" +
+      "<button class='btn btn-sm' data-act='note-save'>SAVE NOTE</button></div>";
+
+    SGOA.el("current").insertAdjacentHTML("beforeend", html);
+  }
+
+  async function act(action, r) {
+    const base = "/api/v1/admin/resolutions/" + encodeURIComponent(r.resolution_id);
+    SGOA.banner("messages", null);
+    try {
+      if (action === "save") {
+        await SGOA.patch(base, { title: SGOA.el("edit-title").value,
+                                 full_text: SGOA.el("edit-text").value });
+      } else if (action === "finalize") {
+        const res = await SGOA.post(base + "/finalize", {});
+        SGOA.banner("messages", "Wording frozen. Hash " + res.text_hash, null, "ok");
+      } else if (action === "open") {
+        if (!confirm("Open voting on " + r.number + "? The wording can no longer change.")) return;
+        await SGOA.post(base + "/open", {});
+      } else if (action === "close") {
+        if (!confirm("Close voting on " + r.number + "?")) return;
+        const res = await SGOA.post(base + "/close", {});
+        if (res.status === "RECONCILIATION_ERROR") {
+          SGOA.banner("messages", "Reconciliation failed. No outcome has been calculated.",
+                      "The scrutineers must investigate before certification.");
+        }
+      } else if (action === "show") {
+        await SGOA.post(base + "/show-result", {});
+        SGOA.banner("messages", "Result is now on the projector.", null, "ok");
+      } else if (action === "amend") {
+        SGOA.show("amend-box", true); return;
+      } else if (action === "amend-save") {
+        await SGOA.post(base + "/amend", { full_text: SGOA.el("amend-text").value });
+      } else if (action === "withdraw") {
+        const note = prompt("Reason for withdrawing " + r.number + " (optional):", "");
+        if (note === null) return;
+        await SGOA.post(base + "/withdraw", { note: note });
+      } else if (action === "notput") {
+        const note = prompt("Reason " + r.number + " was not put to the vote (optional):", "");
+        if (note === null) return;
+        await SGOA.post(base + "/not-put-to-vote", { note: note });
+      } else if (action === "note") {
+        SGOA.show("note-box", true); return;
+      } else if (action === "note-save") {
+        await SGOA.post(base + "/disposition", { note: SGOA.el("note-text").value });
+      }
+      await refresh();
+    } catch (err) {
+      SGOA.banner("messages", err.message, err.payload && err.payload.next_action);
+    }
+  }
+
+  SGOA.el("create-btn").addEventListener("click", async () => {
+    try {
+      await SGOA.post("/api/v1/admin/resolutions", {
+        number: SGOA.el("new-number").value || null,
+        title: SGOA.el("new-title").value,
+        full_text: SGOA.el("new-text").value,
+        voting_rule: SGOA.el("new-rule").value,
+      });
+      SGOA.el("new-number").value = "";
+      SGOA.el("new-title").value = "";
+      SGOA.el("new-text").value = "";
+      await refresh();
+    } catch (err) { SGOA.banner("messages", err.message); }
+  });
+
+  SGOA.el("signout").addEventListener("click", async e => {
+    e.preventDefault();
+    await SGOA.post("/api/v1/auth/logout", {});
+    window.location.href = "/login";
+  });
+
+  refresh();
+  pollTimer = setInterval(async () => {
+    const r = selected();
+    if (r && r.status === "VOTING_OPEN") await refresh();   // live participation only
+  }, POLL_MS);
+})();
+</script>
+{% endblock %}

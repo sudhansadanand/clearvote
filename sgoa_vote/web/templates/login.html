@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Operator sign in | SGOA AGM{% endblock %}
+
+{% block body %}
+<div class="voter-shell">
+  <div class="voter-header">
+    <h1>SGOA AGM &mdash; OPERATOR SIGN IN</h1>
+    <div class="sub">{{ agm.title if agm else "Annual General Meeting" }}</div>
+  </div>
+
+  <div id="messages"></div>
+  {% if denied %}
+  <div class="notice notice-warn">Your role does not have access to that console.
+    <span class="next-action">Sign in with an account that does.</span></div>
+  {% endif %}
+
+  <section class="card">
+    <label for="username">Username</label>
+    <input id="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false">
+    <label for="password">Password</label>
+    <input id="password" type="password" autocomplete="current-password">
+    <button id="signin" class="btn" style="margin-top:18px">SIGN IN</button>
+  </section>
+
+  <p class="help-line">Voters do not sign in here. Voters use the voting code
+    issued at the registration desk on the <a href="/">voting page</a>.</p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const next = {{ next_url | tojson }};
+
+  async function signIn() {
+    SGOA.banner("messages", null);
+    try {
+      await SGOA.post("/api/v1/auth/login", {
+        username: SGOA.el("username").value,
+        password: SGOA.el("password").value,
+      });
+      window.location.href = next || "/mc";
+    } catch (err) {
+      SGOA.banner("messages", err.message, "Check the username and password and try again.");
+    }
+  }
+
+  SGOA.el("signin").addEventListener("click", signIn);
+  SGOA.el("password").addEventListener("keydown", e => { if (e.key === "Enter") signIn(); });
+  SGOA.el("username").focus();
+})();
+</script>
+{% endblock %}
