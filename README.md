@@ -1,5 +1,8 @@
 # SGOA AGM Voting System
 
+[![tests](https://github.com/sudhansadanand/clearvote/actions/workflows/tests.yml/badge.svg)](https://github.com/sudhansadanand/clearvote/actions/workflows/tests.yml)
+[![licence: MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](LICENSE)
+
 Local, private, auditable electronic voting for the Shanti Gulmohar Owners Association
 Annual General Meeting. Runs entirely on one laptop, on a network with no internet
 connection, and produces a signed certification bundle at the end of the meeting.
@@ -209,6 +212,7 @@ sha256sum -c checksums.sha256
 
 # 2. the audit chain has not been rewritten
 python -m sgoa_vote verify-audit --data-dir path/to/bundle
+#    (--data-dir works before or after the subcommand)
 
 # 3. the arithmetic holds — every resolution in the report shows both
 #    reconciliation equalities, and any that failed was never given an outcome
@@ -241,8 +245,14 @@ advance. Record the transition time in the minutes.
 ## Tests
 
 ```bash
-python -m pytest tests -q          # 94 tests
+python -m pytest tests -q          # 148 tests
 ```
+
+Every push runs the same suite on Python 3.12 and 3.13 via GitHub Actions, with the
+privacy gates and the acceptance criteria as their own steps so a failure in either is
+visible without opening the log. A second job seeds a meeting, verifies the audit chain,
+creates a real register, checks that seeding refuses to overwrite an existing meeting,
+starts the server, and greps the served assets for any external reference.
 
 The privacy tests are release gates, not niceties. They read the raw database rather
 than asking the application politely: they dump every ballot row and assert that no
@@ -354,3 +364,15 @@ should be checked against the governing documents and applicable law first:
 | Special resolution thresholds | per resolution, chosen explicitly, never inferred |
 | Challenge and retention period | not set; decide before destroying credential material |
 | Scrutineers | two independent people recommended |
+
+---
+
+## Licence
+
+MIT — see [LICENSE](LICENSE). Any association is free to use, modify and run this for
+their own AGM.
+
+The copyright line names the author rather than SGOA. If the committee should hold it
+instead, change that one line. If you would rather that anyone running a modified version
+had to publish their changes — an argument with some force for voting software — the
+AGPL-3.0 is the licence to swap in, at the cost of making casual reuse harder.

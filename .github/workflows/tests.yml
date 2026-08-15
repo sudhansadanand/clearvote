@@ -1,0 +1,104 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test suite (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install pinned dependencies
+        run: pip install -r requirements.txt
+
+      # The privacy gates and the acceptance criteria are the reason this
+      # workflow exists: they are release gates, not a nice-to-have. Running
+      # them as their own step means a failure is visible in the checks list
+      # without opening the log.
+      - name: Privacy and immutability gates
+        run: python -m pytest tests/privacy -q
+
+      - name: Acceptance criteria AC-01 to AC-14
+        run: python -m pytest tests/acceptance -q
+
+      - name: Full suite
+        run: python -m pytest tests -q
+
+  smoke:
+    name: CLI and server smoke test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install pinned dependencies
+        run: pip install -r requirements.txt
+
+      - name: Seed a rehearsal AGM
+        run: python -m sgoa_vote --data-dir ci-demo seed
+
+      # Both argument orders, because the certification bundle's own README
+      # tells a scrutineer to use the second one.
+      - name: Verify the audit chain
+        run: |
+          python -m sgoa_vote --data-dir ci-demo verify-audit
+          python -m sgoa_vote verify-audit --data-dir ci-demo
+
+      - name: Create a real meeting register from blocks
+        run: |
+          python -m sgoa_vote --data-dir ci-real init \
+            --title "CI verification meeting" \
+            --date 2026-09-20 \
+            --location "CI" \
+            --blocks A:4,B:4
+
+      - name: Refuse to seed over an existing meeting
+        run: |
+          if python -m sgoa_vote --data-dir ci-real seed; then
+            echo "seed overwrote an existing AGM"; exit 1
+          fi
+          echo "correctly refused"
+
+      - name: Back up the three databases
+        run: python -m sgoa_vote --data-dir ci-demo backup
+
+      - name: Server starts and serves the voter page
+        run: |
+          python -m sgoa_vote --data-dir ci-demo run --port 8000 &
+          for _ in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8000/ >/dev/null && break
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:8000/ | grep -q "JOIN AGM"
+          curl -sf http://127.0.0.1:8000/login | grep -q "SIGN IN"
+          echo "voter and sign-in pages served"
+
+      - name: No page or asset reaches the internet
+        run: |
+          if grep -rEn "https?://|//cdn\.|fonts\.googleapis" sgoa_vote/web/; then
+            echo "an external reference was found in a served asset"; exit 1
+          fi
+          echo "no external references"

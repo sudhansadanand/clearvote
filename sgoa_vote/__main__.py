@@ -154,20 +154,36 @@ def cmd_backup(args) -> int:
     return 0
 
 
-def main(argv=None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="sgoa_vote",
                                      description="SGOA AGM Voting System")
     parser.add_argument("--data-dir", default=None,
                         help="directory holding the three database files (default: data)")
     parser.add_argument("--config", default=None, help="path to config.json")
-    sub = parser.add_subparsers(dest="command")
 
-    run = sub.add_parser("run", help="start the server")
+    # The same two options are accepted after the subcommand as well, so both
+    #     sgoa_vote --data-dir bundle verify-audit
+    #     sgoa_vote verify-audit --data-dir bundle
+    # work. The second is the form a scrutineer reaches for when checking an
+    # archived certification bundle, and it is the form the documentation uses.
+    # SUPPRESS keeps the subcommand copy from overwriting a value given earlier.
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--data-dir", default=argparse.SUPPRESS,
+                        help="directory holding the three database files")
+    common.add_argument("--config", default=argparse.SUPPRESS,
+                        help="path to config.json")
+
+    sub = parser.add_subparsers(dest="command", parser_class=argparse.ArgumentParser)
+
+    def add(name, **kwargs):
+        return sub.add_parser(name, parents=[common], **kwargs)
+
+    run = add("run", help="start the server")
     run.add_argument("--host", default=None)
     run.add_argument("--port", type=int, default=None)
     run.set_defaults(func=cmd_run)
 
-    init = sub.add_parser("init", help="create the real AGM and its operator accounts")
+    init = add("init", help="create the real AGM and its operator accounts")
     init.add_argument("--title", required=True,
                       help='e.g. "SGOA Annual General Meeting 2026"')
     init.add_argument("--date", required=True, help="YYYY-MM-DD")
@@ -178,7 +194,7 @@ def main(argv=None) -> int:
                       help="used when no CSV is given, e.g. A:17,B:17,C:17")
     init.set_defaults(func=cmd_init)
 
-    add_op = sub.add_parser("add-operator", help="create an extra operator account")
+    add_op = add("add-operator", help="create an extra operator account")
     add_op.add_argument("username")
     add_op.add_argument("role", choices=["ADMIN", "REGISTRATION", "MC", "SCRUTINEER",
                                          "admin", "registration", "mc", "scrutineer"])
@@ -186,23 +202,27 @@ def main(argv=None) -> int:
                         help="omit to have a strong one generated and printed once")
     add_op.set_defaults(func=cmd_add_operator)
 
-    seed_cmd = sub.add_parser("seed", help="create the demo AGM")
+    seed_cmd = add("seed", help="create the demo AGM")
     seed_cmd.add_argument("--password", default="sgoa-demo",
                           help="password for the seeded operator accounts")
     seed_cmd.set_defaults(func=cmd_seed)
 
-    pw = sub.add_parser("set-password", help="set an operator password")
+    pw = add("set-password", help="set an operator password")
     pw.add_argument("username")
     pw.add_argument("password")
     pw.set_defaults(func=cmd_set_password)
 
-    sub.add_parser("verify-audit", help="re-hash and verify the audit chain") \
+    add("verify-audit", help="re-hash and verify the audit chain") \
         .set_defaults(func=cmd_verify_audit)
 
-    sub.add_parser("backup", help="copy the three databases into backups/") \
+    add("backup", help="copy the three databases into backups/") \
         .set_defaults(func=cmd_backup)
 
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv=None) -> int:
+    args = build_parser().parse_args(argv)
     if not getattr(args, "command", None):
         args.func = cmd_run
         args.host = None
